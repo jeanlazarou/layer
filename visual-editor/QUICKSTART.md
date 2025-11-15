@@ -41,7 +41,9 @@ This will take 1-2 minutes. Expected output:
 added 300+ packages...
 ```
 
-**Note**: We use ⚡ Vite instead of Create React App for 10x faster builds!
+**Note**: We use:
+- ⚡ **Vite** for 10-30x faster builds than CRA
+- 📘 **TypeScript** for type safety and better developer experience
 
 ### 3. Start Backend Server
 
