@@ -2,7 +2,11 @@ import React from 'react'
 import { Box, Typography } from '@mui/material'
 import TerminalIcon from '@mui/icons-material/Terminal'
 
-function OutputConsole({ output }) {
+interface OutputConsoleProps {
+  output: string
+}
+
+const OutputConsole: React.FC<OutputConsoleProps> = ({ output }) => {
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#1e1e1e' }}>
       {/* Console Header */}

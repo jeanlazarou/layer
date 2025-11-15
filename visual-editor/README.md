@@ -103,10 +103,11 @@ Frontend will open at `http://localhost:3000` (powered by ⚡ Vite!)
 
 ### Frontend
 - **⚡ Vite**: Lightning-fast build tool and dev server (10-30x faster than CRA!)
+- **TypeScript**: Type-safe JavaScript with excellent developer experience
 - **React 18**: UI framework
 - **Material UI 5**: Component library and design system
 - **Monaco Editor**: Code editor (VS Code's editor)
-- **Axios**: HTTP client
+- **Axios**: HTTP client with typed responses
 - **@emotion**: CSS-in-JS styling
 
 ### Backend
@@ -177,8 +178,9 @@ Frontend will open at `http://localhost:3000` (powered by ⚡ Vite!)
 ```bash
 cd visual-editor/frontend
 npm run dev        # Development server (⚡ with Vite HMR)
-npm run build      # Production build
+npm run build      # Production build (includes type checking)
 npm run preview    # Preview production build
+npm run type-check # Check TypeScript types
 npm run lint       # Lint code
 ```
 

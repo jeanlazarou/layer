@@ -2,13 +2,19 @@ import React from 'react'
 import { Box, Typography, Chip } from '@mui/material'
 import Editor from '@monaco-editor/react'
 
-function CodeEditor({ code, layerName, onChange }) {
-  const handleEditorChange = (value) => {
+interface CodeEditorProps {
+  code: string
+  layerName: string
+  onChange: (code: string) => void
+}
+
+const CodeEditor: React.FC<CodeEditorProps> = ({ code, layerName, onChange }) => {
+  const handleEditorChange = (value: string | undefined) => {
     onChange(value || '')
   }
 
-  const getLayerColor = (name) => {
-    const colors = {
+  const getLayerColor = (name: string): string => {
+    const colors: Record<string, string> = {
       core: '#4caf50',
       ui: '#2196f3',
       debug: '#ff9800',

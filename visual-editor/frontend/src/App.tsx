@@ -7,8 +7,9 @@ import LayerStack from './components/LayerStack'
 import CodeEditor from './components/CodeEditor'
 import OutputConsole from './components/OutputConsole'
 import { executeLayerCode } from './api/layerApi'
+import type { Layer, LayerId } from './types'
 
-const INITIAL_LAYERS = [
+const INITIAL_LAYERS: Layer[] = [
   {
     id: 'debug',
     name: 'debug',
@@ -51,25 +52,25 @@ const INITIAL_MAIN_CODE = `# Main expression
 factorial(5)`
 
 function App() {
-  const [layers, setLayers] = useState(INITIAL_LAYERS)
-  const [selectedLayerId, setSelectedLayerId] = useState('core')
+  const [layers, setLayers] = useState<Layer[]>(INITIAL_LAYERS)
+  const [selectedLayerId, setSelectedLayerId] = useState<LayerId>('core')
   const [mainCode, setMainCode] = useState(INITIAL_MAIN_CODE)
   const [output, setOutput] = useState('')
   const [isExecuting, setIsExecuting] = useState(false)
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
 
-  const handleLayerReorder = useCallback((newLayers) => {
+  const handleLayerReorder = useCallback((newLayers: Layer[]) => {
     setLayers(newLayers)
   }, [])
 
-  const handleLayerToggle = useCallback((layerId) => {
+  const handleLayerToggle = useCallback((layerId: string) => {
     setLayers(prev => prev.map(layer =>
       layer.id === layerId ? { ...layer, enabled: !layer.enabled } : layer
     ))
   }, [])
 
-  const handleCodeChange = useCallback((code) => {
+  const handleCodeChange = useCallback((code: string) => {
     if (selectedLayerId === 'main') {
       setMainCode(code)
     } else {
@@ -109,7 +110,8 @@ function App() {
         setOutput(`Error: ${result.error}`)
       }
     } catch (error) {
-      setOutput(`Error: ${error.message}`)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setOutput(`Error: ${errorMessage}`)
     } finally {
       setIsExecuting(false)
     }

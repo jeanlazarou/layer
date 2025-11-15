@@ -13,8 +13,16 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import LockIcon from '@mui/icons-material/Lock'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import AddIcon from '@mui/icons-material/Add'
+import type { Layer, LayerId } from '../types'
 
-const LayerCard = ({ layer, isSelected, onSelect, onToggle }) => {
+interface LayerCardProps {
+  layer: Layer
+  isSelected: boolean
+  onSelect: () => void
+  onToggle: (layerId: string) => void
+}
+
+const LayerCard: React.FC<LayerCardProps> = ({ layer, isSelected, onSelect, onToggle }) => {
   return (
     <Card
       elevation={isSelected ? 8 : 1}
@@ -79,7 +87,20 @@ const LayerCard = ({ layer, isSelected, onSelect, onToggle }) => {
   )
 }
 
-function LayerStack({ layers, selectedLayerId, onLayerSelect, onLayerToggle }) {
+interface LayerStackProps {
+  layers: Layer[]
+  selectedLayerId: LayerId
+  onLayerSelect: (layerId: LayerId) => void
+  onLayerToggle: (layerId: string) => void
+  onLayerReorder?: (layers: Layer[]) => void
+}
+
+const LayerStack: React.FC<LayerStackProps> = ({
+  layers,
+  selectedLayerId,
+  onLayerSelect,
+  onLayerToggle,
+}) => {
   return (
     <Box sx={{ p: 2 }}>
       <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
