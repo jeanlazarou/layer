@@ -72,6 +72,15 @@ function App() {
     ))
   }, [])
 
+  const handleLockToggle = useCallback((layerId: string) => {
+    // Core layer cannot be unlocked
+    if (layerId === 'core') return
+
+    setLayers(prev => prev.map(layer =>
+      layer.id === layerId ? { ...layer, locked: !layer.locked } : layer
+    ))
+  }, [])
+
   const handleAddLayer = useCallback((layerData: Omit<Layer, 'id'>) => {
     const newLayer: Layer = {
       ...layerData,
@@ -246,6 +255,7 @@ function App() {
             onLayerSelect={setSelectedLayerId}
             onLayerReorder={handleLayerReorder}
             onLayerToggle={handleLayerToggle}
+            onLockToggle={handleLockToggle}
             onAddLayer={handleAddLayer}
           />
         </Box>

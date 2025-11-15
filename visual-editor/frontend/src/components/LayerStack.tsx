@@ -11,6 +11,7 @@ import {
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import LockIcon from '@mui/icons-material/Lock'
+import LockOpenIcon from '@mui/icons-material/LockOpen'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import AddIcon from '@mui/icons-material/Add'
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'
@@ -22,6 +23,7 @@ interface LayerCardProps {
   isSelected: boolean
   onSelect: () => void
   onToggle: (layerId: string) => void
+  onLockToggle: (layerId: string) => void
   isDragging?: boolean
 }
 
@@ -30,6 +32,7 @@ const LayerCard: React.FC<LayerCardProps> = ({
   isSelected,
   onSelect,
   onToggle,
+  onLockToggle,
   isDragging = false
 }) => {
   return (
@@ -76,9 +79,21 @@ const LayerCard: React.FC<LayerCardProps> = ({
             {layer.name}
           </Typography>
 
-          {layer.locked && (
-            <LockIcon sx={{ fontSize: 18, color: 'text.disabled', mr: 1 }} />
-          )}
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              if (layer.id !== 'core') onLockToggle(layer.id)
+            }}
+            disabled={layer.id === 'core'}
+            title={layer.id === 'core' ? 'Core layer cannot be unlocked' : layer.locked ? 'Unlock layer' : 'Lock layer'}
+          >
+            {layer.locked ? (
+              <LockIcon fontSize="small" />
+            ) : (
+              <LockOpenIcon fontSize="small" />
+            )}
+          </IconButton>
 
           <IconButton
             size="small"
@@ -87,6 +102,7 @@ const LayerCard: React.FC<LayerCardProps> = ({
               if (!layer.locked) onToggle(layer.id)
             }}
             disabled={layer.locked}
+            title={layer.locked ? 'Locked layers cannot be toggled' : layer.enabled ? 'Disable layer' : 'Enable layer'}
           >
             {layer.enabled ? (
               <VisibilityIcon fontSize="small" />
@@ -110,6 +126,7 @@ interface LayerStackProps {
   selectedLayerId: LayerId
   onLayerSelect: (layerId: LayerId) => void
   onLayerToggle: (layerId: string) => void
+  onLockToggle: (layerId: string) => void
   onLayerReorder: (layers: Layer[]) => void
   onAddLayer: (layer: Omit<Layer, 'id'>) => void
 }
@@ -119,6 +136,7 @@ const LayerStack: React.FC<LayerStackProps> = ({
   selectedLayerId,
   onLayerSelect,
   onLayerToggle,
+  onLockToggle,
   onLayerReorder,
   onAddLayer,
 }) => {
@@ -180,6 +198,7 @@ const LayerStack: React.FC<LayerStackProps> = ({
                         isSelected={selectedLayerId === layer.id}
                         onSelect={() => onLayerSelect(layer.id)}
                         onToggle={onLayerToggle}
+                        onLockToggle={onLockToggle}
                         isDragging={snapshot.isDragging}
                       />
                     </div>
