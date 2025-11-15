@@ -1,0 +1,22 @@
+# Fibonacci sequence with layers
+# Demonstrates pattern matching and layer composition
+
+@layers [core, debug]
+
+@layer core {
+    fn fibonacci(n) =
+        match n with
+        | 0 -> 0
+        | 1 -> 1
+        | n -> fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+@layer debug {
+    # Wrap the core fibonacci with logging
+    fn fibonacci(n) =
+        let _ = log(str_concat("Computing fib(", str_concat(str_concat(n, ""), ")"))) in
+            core.fibonacci(n)
+}
+
+# Compute fibonacci(10)
+fibonacci(10)

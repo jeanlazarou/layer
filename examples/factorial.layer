@@ -1,0 +1,13 @@
+# Factorial with pattern matching
+# Demonstrates the power of pattern matching in Layer
+
+@layers [core]
+
+@layer core {
+    fn factorial(n) =
+        match n with
+        | 0 -> 1
+        | n -> n * factorial(n - 1)
+}
+
+factorial(5)

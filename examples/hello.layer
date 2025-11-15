@@ -1,0 +1,11 @@
+# Simple Hello World program
+# Demonstrates basic Layer syntax
+
+@layers [core]
+
+@layer core {
+    fn greet(name) =
+        str_concat("Hello, ", str_concat(name, "!"))
+}
+
+greet("Layer")

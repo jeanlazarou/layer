@@ -1,0 +1,20 @@
+# Debug layer example
+# Shows how to trace function execution
+
+@layers [core, debug]
+
+@layer core {
+    fn power(base, exp) =
+        match exp with
+        | 0 -> 1
+        | n -> base * power(base, n - 1)
+}
+
+@layer debug {
+    # Wrap power function with tracing
+    fn power(base, exp) =
+        trace("power", core.power)(base, exp)
+}
+
+# This will log all recursive calls
+power(2, 10)

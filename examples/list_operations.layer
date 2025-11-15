@@ -1,0 +1,28 @@
+# List operations
+# Demonstrates functional list processing
+
+@layers [core]
+
+@layer core {
+    # Sum all elements in a list
+    fn sum(lst) =
+        match lst with
+        | [] -> 0
+        | [head, ...tail] -> head + sum(tail)
+
+    # Map a function over a list
+    fn double(x) = x * 2
+
+    # Filter even numbers
+    fn is_even(x) =
+        match x % 2 with
+        | 0 -> true
+        | _ -> false
+}
+
+# Example usage
+let numbers = [1, 2, 3, 4, 5] in
+let doubled = map(double, numbers) in
+let evens = filter(is_even, numbers) in
+let total = sum(numbers) in
+    total

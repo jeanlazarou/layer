@@ -1,0 +1,26 @@
+# UI Layer example
+# Demonstrates declarative UI composition
+
+@layers [core, ui]
+
+@layer core {
+    fn factorial(n) =
+        match n with
+        | 0 -> 1
+        | n -> n * factorial(n - 1)
+}
+
+@layer ui {
+    fn app() =
+        view({
+            title: "Factorial Calculator",
+            children: [
+                text({content: "Welcome to Layer!"}),
+                text({content: "Factorial of 5:"}),
+                text({content: factorial(5)})
+            ]
+        })
+}
+
+# Render the UI
+render(app())
