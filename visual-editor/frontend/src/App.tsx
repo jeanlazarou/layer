@@ -3,10 +3,12 @@ import { Box, AppBar, Toolbar, Typography, IconButton, Tooltip } from '@mui/mate
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import SaveIcon from '@mui/icons-material/Save'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
+import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import LayerStack from './components/LayerStack'
 import CodeEditor from './components/CodeEditor'
 import OutputConsole from './components/OutputConsole'
+import FlowDiagram from './components/FlowDiagram'
 import { executeLayerCode } from './api/layerApi'
 import type { Layer, LayerId } from './types'
 
@@ -58,6 +60,7 @@ function App() {
   const [mainCode, setMainCode] = useState(INITIAL_MAIN_CODE)
   const [output, setOutput] = useState('')
   const [isExecuting, setIsExecuting] = useState(false)
+  const [showFlowDiagram, setShowFlowDiagram] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
@@ -228,6 +231,17 @@ function App() {
               <SaveIcon />
             </IconButton>
           </Tooltip>
+          <Tooltip title="Toggle Flow Diagram">
+            <IconButton
+              color="inherit"
+              onClick={() => setShowFlowDiagram(!showFlowDiagram)}
+              sx={{
+                bgcolor: showFlowDiagram ? 'rgba(255,255,255,0.1)' : 'transparent',
+              }}
+            >
+              <AccountTreeIcon />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Help">
             <IconButton color="inherit">
               <HelpOutlineIcon />
@@ -260,7 +274,7 @@ function App() {
           />
         </Box>
 
-        {/* Code Editor and Output - Right Panel */}
+        {/* Code Editor and Output - Center Panel */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           {/* Code Editor */}
           <Box sx={{ flex: 1, overflow: 'hidden' }}>
@@ -276,6 +290,13 @@ function App() {
             <OutputConsole output={output} />
           </Box>
         </Box>
+
+        {/* Flow Diagram - Right Panel (Collapsible) */}
+        {showFlowDiagram && (
+          <Box sx={{ width: 350, borderLeft: 1, borderColor: 'divider', overflow: 'auto' }}>
+            <FlowDiagram layers={layers} />
+          </Box>
+        )}
       </Box>
     </Box>
   )
