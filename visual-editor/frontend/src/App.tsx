@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import { Box, AppBar, Toolbar, Typography, IconButton, Tooltip } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import SaveIcon from '@mui/icons-material/Save'
+import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import LayerStack from './components/LayerStack'
 import CodeEditor from './components/CodeEditor'
@@ -57,6 +58,7 @@ function App() {
   const [mainCode, setMainCode] = useState(INITIAL_MAIN_CODE)
   const [output, setOutput] = useState('')
   const [isExecuting, setIsExecuting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
 
@@ -126,6 +128,70 @@ function App() {
     }
   }
 
+  const handleSave = useCallback(() => {
+    const layerFile = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      layers: layers.map(layer => ({
+        id: layer.id,
+        name: layer.name,
+        enabled: layer.enabled,
+        color: layer.color,
+        locked: layer.locked || false,
+        code: layer.code,
+      })),
+      mainCode,
+    }
+
+    const blob = new Blob([JSON.stringify(layerFile, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'program.layer'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    setOutput('Project saved to program.layer')
+  }, [layers, mainCode])
+
+  const handleLoad = useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string
+        const layerFile = JSON.parse(content)
+
+        // Validate file format
+        if (!layerFile.version || !layerFile.layers || !Array.isArray(layerFile.layers)) {
+          setOutput('Error: Invalid .layer file format')
+          return
+        }
+
+        // Load layers
+        setLayers(layerFile.layers)
+        setMainCode(layerFile.mainCode || '')
+        setSelectedLayerId('core')
+        setOutput(`Project loaded from ${file.name}`)
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        setOutput(`Error loading file: ${errorMessage}`)
+      }
+    }
+    reader.readAsText(file)
+
+    // Reset input so the same file can be loaded again
+    event.target.value = ''
+  }, [])
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {/* App Bar */}
@@ -143,8 +209,13 @@ function App() {
               <PlayArrowIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Save">
-            <IconButton color="inherit">
+          <Tooltip title="Open Project">
+            <IconButton color="inherit" onClick={handleLoad}>
+              <FolderOpenIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Save Project">
+            <IconButton color="inherit" onClick={handleSave}>
               <SaveIcon />
             </IconButton>
           </Tooltip>
@@ -155,6 +226,15 @@ function App() {
           </Tooltip>
         </Toolbar>
       </AppBar>
+
+      {/* Hidden file input for loading .layer files */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept=".layer"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
 
       {/* Main Content */}
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
