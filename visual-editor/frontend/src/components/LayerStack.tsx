@@ -58,22 +58,24 @@ const LayerCard: React.FC<LayerCardProps> = ({
     >
       <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-          <Box
+          <div
             {...dragHandleProps}
-            sx={{
+            onClick={(e) => e.stopPropagation()}
+            style={{
               display: 'flex',
               alignItems: 'center',
               cursor: layer.locked ? 'not-allowed' : (isDragging ? 'grabbing' : 'grab'),
-              mr: 0.75,
+              marginRight: '6px',
             }}
           >
             <DragIndicatorIcon
               sx={{
                 color: layer.locked ? 'action.disabled' : 'text.disabled',
                 fontSize: 18,
+                pointerEvents: 'none',
               }}
             />
-          </Box>
+          </div>
           <Box
             sx={{
               width: 8,
