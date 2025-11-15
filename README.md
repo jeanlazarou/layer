@@ -67,16 +67,35 @@ python -m layer.repl
 
 ## Running Layer Programs
 
+### Command Line
+
 ```bash
 # Execute a .layer file
 python -m layer.cli run myprogram.layer
 
 # Interactive REPL
 python -m layer.repl
-
-# Visual layer editor (future)
-python -m layer.visual
 ```
+
+### 🎨 Visual Editor (NEW!)
+
+Experience Layer programming with a beautiful Photoshop-inspired interface!
+
+```bash
+# Start backend
+cd visual-editor/backend
+pip install -r requirements.txt
+python app.py
+
+# Start frontend (in another terminal)
+cd visual-editor/frontend
+npm install
+npm start
+```
+
+Open http://localhost:3000 for the visual editor!
+
+See [visual-editor/QUICKSTART.md](visual-editor/QUICKSTART.md) for detailed setup.
 
 ## Project Structure
 
@@ -134,10 +153,11 @@ Layer is an experimental language in active development. Current status:
 - [x] Parser and AST
 - [x] Basic interpreter
 - [x] Core layer implementation
-- [ ] UI layer (in progress)
-- [ ] Debug layer (in progress)
+- [x] UI layer
+- [x] Debug layer
+- [x] **Visual layer editor (React + Material UI)**
 - [ ] Type inference engine
-- [ ] Visual layer editor
+- [ ] Drag-and-drop layer reordering
 - [ ] Standard library expansion
 
 ## Contributing
