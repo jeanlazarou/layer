@@ -63,70 +63,75 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ layers }) => {
   }
 
   return (
-    <Box sx={{ p: 2, height: '100%', overflow: 'auto' }}>
-      <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-        Function Flow Diagram
+    <Box sx={{ p: 1.5, height: '100%', overflow: 'auto' }}>
+      <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 600, fontSize: '0.95rem' }}>
+        Function Flow
       </Typography>
 
-      <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+      <Paper variant="outlined" sx={{ p: 1.25, bgcolor: 'grey.50' }}>
         {/* Layer Stack Visualization */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
           {enabledLayers.map((layer, index) => (
             <Paper
               key={layer.id}
-              elevation={2}
+              elevation={1}
               sx={{
-                p: 2,
-                borderLeft: 4,
+                p: 1.25,
+                borderLeft: 3,
                 borderColor: layer.color,
                 bgcolor: 'white',
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.75 }}>
                 <Box
                   sx={{
-                    width: 12,
-                    height: 12,
+                    width: 8,
+                    height: 8,
                     borderRadius: '50%',
                     bgcolor: layer.color,
-                    mr: 1,
+                    mr: 0.75,
                   }}
                 />
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
                   {layer.name}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  (Layer {enabledLayers.length - index})
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 0.75, fontSize: '0.65rem' }}>
+                  (L{enabledLayers.length - index})
                 </Typography>
               </Box>
 
               {/* Functions in this layer */}
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                 {functionsByLayer[layer.name]?.map((func, idx) => (
                   <Chip
                     key={`${func.layer}-${func.name}-${idx}`}
-                    label={`fn ${func.name}()`}
+                    label={`${func.name}()`}
                     size="small"
                     sx={{
+                      height: 20,
+                      fontSize: '0.7rem',
                       bgcolor: `${layer.color}20`,
                       borderColor: layer.color,
                       border: 1,
                       fontFamily: 'monospace',
+                      '& .MuiChip-label': {
+                        px: 0.75,
+                        py: 0,
+                      }
                     }}
                   />
                 )) || (
-                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                    No functions defined
+                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: '0.7rem' }}>
+                    No functions
                   </Typography>
                 )}
               </Box>
 
               {/* Show what this layer can access */}
               {index < enabledLayers.length - 1 && (
-                <Box sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Can call: functions from{' '}
-                    <strong>{enabledLayers.slice(index + 1).map(l => l.name).join(', ')}</strong>
+                <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', lineHeight: 1.3 }}>
+                    Calls: <strong>{enabledLayers.slice(index + 1).map(l => l.name).join(', ')}</strong>
                   </Typography>
                 </Box>
               )}
@@ -135,19 +140,19 @@ const FlowDiagram: React.FC<FlowDiagramProps> = ({ layers }) => {
         </Box>
 
         {/* Legend */}
-        <Box sx={{ mt: 3, pt: 2, borderTop: 2, borderColor: 'divider' }}>
-          <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
-            Layer Composition Rules:
+        <Box sx={{ mt: 2, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
+          <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.75, fontSize: '0.7rem' }}>
+            Rules:
           </Typography>
-          <Box sx={{ pl: 2 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              • Layers are stacked from bottom (core) to top
+          <Box sx={{ pl: 1.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.65rem', lineHeight: 1.4 }}>
+              • Bottom-to-top stack
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              • Higher layers can override or wrap functions from lower layers
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.65rem', lineHeight: 1.4 }}>
+              • Higher override lower
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              • Use <code style={{ background: '#f5f5f5', padding: '2px 4px' }}>core.function()</code> to call original implementation
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.65rem', lineHeight: 1.4 }}>
+              • <code style={{ background: '#f5f5f5', padding: '1px 3px', fontSize: '0.65rem' }}>core.fn()</code> for original
             </Typography>
           </Box>
         </Box>

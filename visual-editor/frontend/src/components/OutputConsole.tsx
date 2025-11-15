@@ -12,7 +12,8 @@ const OutputConsole: React.FC<OutputConsoleProps> = ({ output }) => {
       {/* Console Header */}
       <Box
         sx={{
-          p: 1.5,
+          px: 1.5,
+          py: 0.75,
           display: 'flex',
           alignItems: 'center',
           bgcolor: '#2d2d2d',
@@ -20,9 +21,9 @@ const OutputConsole: React.FC<OutputConsoleProps> = ({ output }) => {
           borderColor: '#444',
         }}
       >
-        <TerminalIcon sx={{ fontSize: 18, mr: 1, color: '#4caf50' }} />
-        <Typography variant="subtitle2" sx={{ color: '#fff', fontWeight: 600 }}>
-          Output Console
+        <TerminalIcon sx={{ fontSize: 16, mr: 0.75, color: '#4caf50' }} />
+        <Typography variant="subtitle2" sx={{ color: '#fff', fontWeight: 600, fontSize: '0.8rem' }}>
+          Output
         </Typography>
       </Box>
 
@@ -30,15 +31,15 @@ const OutputConsole: React.FC<OutputConsoleProps> = ({ output }) => {
       <Box
         sx={{
           flex: 1,
-          p: 2,
+          p: 1.5,
           overflow: 'auto',
           fontFamily: '"Fira Code", "Courier New", monospace',
-          fontSize: 13,
+          fontSize: 12,
           color: '#d4d4d4',
         }}
       >
         <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-          {output || '> Ready to execute...\n> Click the play button to run your Layer program.'}
+          {output || '> Ready\n> Click play to execute'}
         </pre>
       </Box>
     </Box>

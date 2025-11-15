@@ -262,7 +262,7 @@ function App() {
       {/* Main Content */}
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Layer Stack - Left Panel */}
-        <Box sx={{ width: 280, borderRight: 1, borderColor: 'divider', overflow: 'auto' }}>
+        <Box sx={{ width: 220, borderRight: 1, borderColor: 'divider', overflow: 'auto' }}>
           <LayerStack
             layers={layers}
             selectedLayerId={selectedLayerId}
@@ -275,7 +275,7 @@ function App() {
         </Box>
 
         {/* Code Editor and Output - Center Panel */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           {/* Code Editor */}
           <Box sx={{ flex: 1, overflow: 'hidden' }}>
             <CodeEditor
@@ -286,14 +286,14 @@ function App() {
           </Box>
 
           {/* Output Console */}
-          <Box sx={{ height: 250, borderTop: 1, borderColor: 'divider' }}>
+          <Box sx={{ height: 200, borderTop: 1, borderColor: 'divider' }}>
             <OutputConsole output={output} />
           </Box>
         </Box>
 
         {/* Flow Diagram - Right Panel (Collapsible) */}
         {showFlowDiagram && (
-          <Box sx={{ width: 350, borderLeft: 1, borderColor: 'divider', overflow: 'auto' }}>
+          <Box sx={{ width: 280, borderLeft: 1, borderColor: 'divider', overflow: 'auto' }}>
             <FlowDiagram layers={layers} />
           </Box>
         )}

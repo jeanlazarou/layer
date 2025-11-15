@@ -25,6 +25,7 @@ interface LayerCardProps {
   onToggle: (layerId: string) => void
   onLockToggle: (layerId: string) => void
   isDragging?: boolean
+  dragHandleProps?: any
 }
 
 const LayerCard: React.FC<LayerCardProps> = ({
@@ -33,49 +34,56 @@ const LayerCard: React.FC<LayerCardProps> = ({
   onSelect,
   onToggle,
   onLockToggle,
-  isDragging = false
+  isDragging = false,
+  dragHandleProps
 }) => {
   return (
     <Card
-      elevation={isDragging ? 12 : isSelected ? 8 : 1}
+      elevation={isDragging ? 12 : isSelected ? 4 : 1}
       sx={{
-        mb: 1,
+        mb: 0.75,
         cursor: 'pointer',
         opacity: layer.enabled ? 1 : 0.5,
-        border: isSelected ? 2 : 0,
+        border: isSelected ? 1.5 : 0,
         borderColor: 'primary.main',
         transition: 'all 0.2s',
         bgcolor: isDragging ? 'action.hover' : 'background.paper',
         transform: isDragging ? 'rotate(2deg)' : 'none',
         '&:hover': {
-          elevation: 4,
-          transform: isDragging ? 'rotate(2deg)' : 'translateY(-2px)',
+          elevation: 3,
+          transform: isDragging ? 'rotate(2deg)' : 'translateY(-1px)',
         },
       }}
       onClick={onSelect}
     >
-      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-          <DragIndicatorIcon
+      <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+          <Box
+            {...dragHandleProps}
             sx={{
-              color: 'text.disabled',
-              mr: 1,
-              cursor: isDragging ? 'grabbing' : 'grab',
-              '&:active': {
-                cursor: 'grabbing'
-              }
+              display: 'flex',
+              alignItems: 'center',
+              cursor: layer.locked ? 'not-allowed' : (isDragging ? 'grabbing' : 'grab'),
+              mr: 0.75,
             }}
-          />
+          >
+            <DragIndicatorIcon
+              sx={{
+                color: layer.locked ? 'action.disabled' : 'text.disabled',
+                fontSize: 18,
+              }}
+            />
+          </Box>
           <Box
             sx={{
-              width: 12,
-              height: 12,
+              width: 8,
+              height: 8,
               borderRadius: '50%',
               bgcolor: layer.color,
-              mr: 1,
+              mr: 0.75,
             }}
           />
-          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600 }}>
+          <Typography variant="body2" sx={{ flexGrow: 1, fontWeight: 600, fontSize: '0.875rem' }}>
             {layer.name}
           </Typography>
 
@@ -87,11 +95,12 @@ const LayerCard: React.FC<LayerCardProps> = ({
             }}
             disabled={layer.id === 'core'}
             title={layer.id === 'core' ? 'Core layer cannot be unlocked' : layer.locked ? 'Unlock layer' : 'Lock layer'}
+            sx={{ p: 0.5 }}
           >
             {layer.locked ? (
-              <LockIcon fontSize="small" />
+              <LockIcon sx={{ fontSize: 16 }} />
             ) : (
-              <LockOpenIcon fontSize="small" />
+              <LockOpenIcon sx={{ fontSize: 16 }} />
             )}
           </IconButton>
 
@@ -103,16 +112,17 @@ const LayerCard: React.FC<LayerCardProps> = ({
             }}
             disabled={layer.locked}
             title={layer.locked ? 'Locked layers cannot be toggled' : layer.enabled ? 'Disable layer' : 'Enable layer'}
+            sx={{ p: 0.5 }}
           >
             {layer.enabled ? (
-              <VisibilityIcon fontSize="small" />
+              <VisibilityIcon sx={{ fontSize: 16 }} />
             ) : (
-              <VisibilityOffIcon fontSize="small" />
+              <VisibilityOffIcon sx={{ fontSize: 16 }} />
             )}
           </IconButton>
         </Box>
 
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
           {layer.enabled ? 'Active' : 'Disabled'}
           {layer.locked && ' • Locked'}
         </Typography>
@@ -162,8 +172,8 @@ const LayerStack: React.FC<LayerStackProps> = ({
   }
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+    <Box sx={{ p: 1.5 }}>
+      <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 600, fontSize: '0.95rem' }}>
         Layer Stack
       </Typography>
 
@@ -191,7 +201,6 @@ const LayerStack: React.FC<LayerStackProps> = ({
                     <div
                       ref={provided.innerRef}
                       {...provided.draggableProps}
-                      {...provided.dragHandleProps}
                     >
                       <LayerCard
                         layer={layer}
@@ -200,6 +209,7 @@ const LayerStack: React.FC<LayerStackProps> = ({
                         onToggle={onLayerToggle}
                         onLockToggle={onLockToggle}
                         isDragging={snapshot.isDragging}
+                        dragHandleProps={provided.dragHandleProps}
                       />
                     </div>
                   )}
@@ -211,22 +221,22 @@ const LayerStack: React.FC<LayerStackProps> = ({
         </Droppable>
       </DragDropContext>
 
-      <Divider sx={{ my: 2 }} />
+      <Divider sx={{ my: 1.5 }} />
 
       <Card
-        elevation={selectedLayerId === 'main' ? 8 : 1}
+        elevation={selectedLayerId === 'main' ? 4 : 1}
         sx={{
           cursor: 'pointer',
-          border: selectedLayerId === 'main' ? 2 : 0,
+          border: selectedLayerId === 'main' ? 1.5 : 0,
           borderColor: 'primary.main',
         }}
         onClick={() => onLayerSelect('main')}
       >
-        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+        <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
             Main Expression
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
             Entry point
           </Typography>
         </CardContent>
@@ -234,8 +244,9 @@ const LayerStack: React.FC<LayerStackProps> = ({
 
       <Button
         fullWidth
-        startIcon={<AddIcon />}
-        sx={{ mt: 2 }}
+        size="small"
+        startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+        sx={{ mt: 1.5, fontSize: '0.8rem' }}
         variant="outlined"
         onClick={() => setAddDialogOpen(true)}
       >
