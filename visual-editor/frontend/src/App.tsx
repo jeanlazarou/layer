@@ -70,6 +70,15 @@ function App() {
     ))
   }, [])
 
+  const handleAddLayer = useCallback((layerData: Omit<Layer, 'id'>) => {
+    const newLayer: Layer = {
+      ...layerData,
+      id: `custom_${Date.now()}`, // Generate unique ID
+    }
+    setLayers(prev => [newLayer, ...prev]) // Add at top
+    setSelectedLayerId(newLayer.id) // Auto-select the new layer
+  }, [])
+
   const handleCodeChange = useCallback((code: string) => {
     if (selectedLayerId === 'main') {
       setMainCode(code)
@@ -157,6 +166,7 @@ function App() {
             onLayerSelect={setSelectedLayerId}
             onLayerReorder={handleLayerReorder}
             onLayerToggle={handleLayerToggle}
+            onAddLayer={handleAddLayer}
           />
         </Box>
 

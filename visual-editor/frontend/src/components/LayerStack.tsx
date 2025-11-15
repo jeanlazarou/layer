@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Box,
   Card,
@@ -13,6 +13,8 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import LockIcon from '@mui/icons-material/Lock'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import AddIcon from '@mui/icons-material/Add'
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'
+import AddLayerDialog from './AddLayerDialog'
 import type { Layer, LayerId } from '../types'
 
 interface LayerCardProps {
@@ -20,12 +22,19 @@ interface LayerCardProps {
   isSelected: boolean
   onSelect: () => void
   onToggle: (layerId: string) => void
+  isDragging?: boolean
 }
 
-const LayerCard: React.FC<LayerCardProps> = ({ layer, isSelected, onSelect, onToggle }) => {
+const LayerCard: React.FC<LayerCardProps> = ({
+  layer,
+  isSelected,
+  onSelect,
+  onToggle,
+  isDragging = false
+}) => {
   return (
     <Card
-      elevation={isSelected ? 8 : 1}
+      elevation={isDragging ? 12 : isSelected ? 8 : 1}
       sx={{
         mb: 1,
         cursor: 'pointer',
@@ -33,9 +42,11 @@ const LayerCard: React.FC<LayerCardProps> = ({ layer, isSelected, onSelect, onTo
         border: isSelected ? 2 : 0,
         borderColor: 'primary.main',
         transition: 'all 0.2s',
+        bgcolor: isDragging ? 'action.hover' : 'background.paper',
+        transform: isDragging ? 'rotate(2deg)' : 'none',
         '&:hover': {
           elevation: 4,
-          transform: 'translateY(-2px)',
+          transform: isDragging ? 'rotate(2deg)' : 'translateY(-2px)',
         },
       }}
       onClick={onSelect}
@@ -43,7 +54,14 @@ const LayerCard: React.FC<LayerCardProps> = ({ layer, isSelected, onSelect, onTo
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
           <DragIndicatorIcon
-            sx={{ color: 'text.disabled', mr: 1, cursor: 'grab' }}
+            sx={{
+              color: 'text.disabled',
+              mr: 1,
+              cursor: isDragging ? 'grabbing' : 'grab',
+              '&:active': {
+                cursor: 'grabbing'
+              }
+            }}
           />
           <Box
             sx={{
@@ -92,7 +110,8 @@ interface LayerStackProps {
   selectedLayerId: LayerId
   onLayerSelect: (layerId: LayerId) => void
   onLayerToggle: (layerId: string) => void
-  onLayerReorder?: (layers: Layer[]) => void
+  onLayerReorder: (layers: Layer[]) => void
+  onAddLayer: (layer: Omit<Layer, 'id'>) => void
 }
 
 const LayerStack: React.FC<LayerStackProps> = ({
@@ -100,22 +119,78 @@ const LayerStack: React.FC<LayerStackProps> = ({
   selectedLayerId,
   onLayerSelect,
   onLayerToggle,
+  onLayerReorder,
+  onAddLayer,
 }) => {
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+
+  const handleDragEnd = (result: DropResult) => {
+    // Dropped outside the list
+    if (!result.destination) {
+      return
+    }
+
+    // No movement
+    if (result.destination.index === result.source.index) {
+      return
+    }
+
+    // Reorder the layers array
+    const reorderedLayers = Array.from(layers)
+    const [removed] = reorderedLayers.splice(result.source.index, 1)
+    reorderedLayers.splice(result.destination.index, 0, removed)
+
+    onLayerReorder(reorderedLayers)
+  }
+
   return (
     <Box sx={{ p: 2 }}>
       <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
         Layer Stack
       </Typography>
 
-      {layers.map((layer) => (
-        <LayerCard
-          key={layer.id}
-          layer={layer}
-          isSelected={selectedLayerId === layer.id}
-          onSelect={() => onLayerSelect(layer.id)}
-          onToggle={onLayerToggle}
-        />
-      ))}
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="layer-stack">
+          {(provided, snapshot) => (
+            <Box
+              {...provided.droppableProps}
+              ref={provided.innerRef}
+              sx={{
+                minHeight: 100,
+                bgcolor: snapshot.isDraggingOver ? 'action.hover' : 'transparent',
+                borderRadius: 1,
+                transition: 'background-color 0.2s',
+              }}
+            >
+              {layers.map((layer, index) => (
+                <Draggable
+                  key={layer.id}
+                  draggableId={layer.id}
+                  index={index}
+                  isDragDisabled={layer.locked}
+                >
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      {...provided.dragHandleProps}
+                    >
+                      <LayerCard
+                        layer={layer}
+                        isSelected={selectedLayerId === layer.id}
+                        onSelect={() => onLayerSelect(layer.id)}
+                        onToggle={onLayerToggle}
+                        isDragging={snapshot.isDragging}
+                      />
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </Box>
+          )}
+        </Droppable>
+      </DragDropContext>
 
       <Divider sx={{ my: 2 }} />
 
@@ -143,9 +218,17 @@ const LayerStack: React.FC<LayerStackProps> = ({
         startIcon={<AddIcon />}
         sx={{ mt: 2 }}
         variant="outlined"
+        onClick={() => setAddDialogOpen(true)}
       >
         Add Layer
       </Button>
+
+      <AddLayerDialog
+        open={addDialogOpen}
+        onClose={() => setAddDialogOpen(false)}
+        onAdd={onAddLayer}
+        existingLayerNames={layers.map(l => l.name)}
+      />
     </Box>
   )
 }
