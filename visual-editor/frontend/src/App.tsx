@@ -254,9 +254,8 @@ function App() {
           }
         })
 
-        // Reverse to maintain top-to-bottom order in UI (debug, ui, core)
-        loadedLayers.reverse()
-
+        // INITIAL_LAYERS is already in correct UI order (debug, ui, core top-to-bottom)
+        // No need to reverse
         setLayers(loadedLayers)
         setMainCode(mainExpression)
         setSelectedLayerId('core')
