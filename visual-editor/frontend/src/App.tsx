@@ -223,22 +223,26 @@ function App() {
           .join('\n')
           .trim()
 
-        // Build layer array with metadata
-        const defaultColors = ['#f44336', '#2196f3', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4']
+        // Build layer array: start with all standard layers
         const loadedLayers: Layer[] = []
+        const standardLayerNames = new Set(['core', 'debug', 'ui'])
+        const defaultColors = ['#f44336', '#2196f3', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4']
 
+        // Add all standard layers (from INITIAL_LAYERS)
+        INITIAL_LAYERS.forEach(initialLayer => {
+          const isEnabled = enabledLayerNames.includes(initialLayer.name)
+          const hasCode = parsedLayers[initialLayer.name]
+
+          loadedLayers.push({
+            ...initialLayer,
+            enabled: isEnabled,
+            code: hasCode ? parsedLayers[initialLayer.name] : `# ${initialLayer.name} layer\n`,
+          })
+        })
+
+        // Add custom layers (not in standard set)
         enabledLayerNames.forEach((name, index) => {
-          // Find if this layer exists in INITIAL_LAYERS
-          const existingLayer = INITIAL_LAYERS.find(l => l.name === name)
-
-          if (existingLayer && parsedLayers[name]) {
-            loadedLayers.push({
-              ...existingLayer,
-              code: parsedLayers[name],
-              enabled: true,
-            })
-          } else if (parsedLayers[name]) {
-            // Custom layer
+          if (!standardLayerNames.has(name) && parsedLayers[name]) {
             loadedLayers.push({
               id: `custom_${name}`,
               name,
@@ -250,13 +254,15 @@ function App() {
           }
         })
 
-        // Reverse to maintain top-to-bottom order in UI
+        // Reverse to maintain top-to-bottom order in UI (debug, ui, core)
         loadedLayers.reverse()
 
         setLayers(loadedLayers)
         setMainCode(mainExpression)
         setSelectedLayerId('core')
-        setOutput(`Loaded ${file.name}: ${loadedLayers.length} layers, ${mainExpression.split('\n').length} line(s) main code`)
+
+        const enabledCount = loadedLayers.filter(l => l.enabled).length
+        setOutput(`Loaded ${file.name}: ${enabledCount}/${loadedLayers.length} layers enabled`)
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         setOutput(`Error loading file: ${errorMessage}`)
