@@ -38,8 +38,10 @@ npm install
 
 This will take 1-2 minutes. Expected output:
 ```
-added 1500+ packages...
+added 300+ packages...
 ```
+
+**Note**: We use ⚡ Vite instead of Create React App for 10x faster builds!
 
 ### 3. Start Backend Server
 
@@ -66,14 +68,14 @@ In **Terminal 2** (new terminal):
 
 ```bash
 cd visual-editor/frontend
-npm start
+npm run dev
 ```
 
 You should see:
 ```
-Compiled successfully!
-
-Local:            http://localhost:3000
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: use --host to expose
+  ➜  ready in 350 ms ⚡
 ```
 
 **Your browser will automatically open to http://localhost:3000**

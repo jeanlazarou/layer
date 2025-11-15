@@ -69,10 +69,10 @@ Backend will run on `http://localhost:5000`
 
 ```bash
 cd visual-editor/frontend
-npm start
+npm run dev
 ```
 
-Frontend will open at `http://localhost:3000`
+Frontend will open at `http://localhost:3000` (powered by ⚡ Vite!)
 
 ## Usage
 
@@ -102,6 +102,7 @@ Frontend will open at `http://localhost:3000`
 ## Technology Stack
 
 ### Frontend
+- **⚡ Vite**: Lightning-fast build tool and dev server (10-30x faster than CRA!)
 - **React 18**: UI framework
 - **Material UI 5**: Component library and design system
 - **Monaco Editor**: Code editor (VS Code's editor)
@@ -175,9 +176,10 @@ Frontend will open at `http://localhost:3000`
 
 ```bash
 cd visual-editor/frontend
-npm start          # Development server
-npm test           # Run tests
+npm run dev        # Development server (⚡ with Vite HMR)
 npm run build      # Production build
+npm run preview    # Preview production build
+npm run lint       # Lint code
 ```
 
 ### Backend Development

@@ -1,11 +1,11 @@
-import React from 'react';
-import { Box, Typography, Chip } from '@mui/material';
-import Editor from '@monaco-editor/react';
+import React from 'react'
+import { Box, Typography, Chip } from '@mui/material'
+import Editor from '@monaco-editor/react'
 
 function CodeEditor({ code, layerName, onChange }) {
   const handleEditorChange = (value) => {
-    onChange(value || '');
-  };
+    onChange(value || '')
+  }
 
   const getLayerColor = (name) => {
     const colors = {
@@ -13,9 +13,9 @@ function CodeEditor({ code, layerName, onChange }) {
       ui: '#2196f3',
       debug: '#ff9800',
       main: '#9c27b0',
-    };
-    return colors[name] || '#757575';
-  };
+    }
+    return colors[name] || '#757575'
+  }
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -64,7 +64,7 @@ function CodeEditor({ code, layerName, onChange }) {
         />
       </Box>
     </Box>
-  );
+  )
 }
 
-export default CodeEditor;
+export default CodeEditor

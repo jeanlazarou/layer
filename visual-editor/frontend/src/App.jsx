@@ -1,12 +1,12 @@
-import React, { useState, useCallback } from 'react';
-import { Box, AppBar, Toolbar, Typography, IconButton, Tooltip } from '@mui/material';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import SaveIcon from '@mui/icons-material/Save';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import LayerStack from './components/LayerStack';
-import CodeEditor from './components/CodeEditor';
-import OutputConsole from './components/OutputConsole';
-import { executeLayerCode } from './api/layerApi';
+import React, { useState, useCallback } from 'react'
+import { Box, AppBar, Toolbar, Typography, IconButton, Tooltip } from '@mui/material'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import SaveIcon from '@mui/icons-material/Save'
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
+import LayerStack from './components/LayerStack'
+import CodeEditor from './components/CodeEditor'
+import OutputConsole from './components/OutputConsole'
+import { executeLayerCode } from './api/layerApi'
 
 const INITIAL_LAYERS = [
   {
@@ -16,7 +16,7 @@ const INITIAL_LAYERS = [
     color: '#ff9800',
     code: `# Debug layer wraps core functions with logging
 fn factorial(n) =
-  let _ = log("Computing factorial({n})") in
+  let _ = log("Computing factorial of {n}") in
     core.factorial(n)`,
   },
   {
@@ -45,75 +45,75 @@ fn factorial(n) =
   | 0 -> 1
   | n -> n * factorial(n - 1)`,
   },
-];
+]
 
 const INITIAL_MAIN_CODE = `# Main expression
-factorial(5)`;
+factorial(5)`
 
 function App() {
-  const [layers, setLayers] = useState(INITIAL_LAYERS);
-  const [selectedLayerId, setSelectedLayerId] = useState('core');
-  const [mainCode, setMainCode] = useState(INITIAL_MAIN_CODE);
-  const [output, setOutput] = useState('');
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [layers, setLayers] = useState(INITIAL_LAYERS)
+  const [selectedLayerId, setSelectedLayerId] = useState('core')
+  const [mainCode, setMainCode] = useState(INITIAL_MAIN_CODE)
+  const [output, setOutput] = useState('')
+  const [isExecuting, setIsExecuting] = useState(false)
 
-  const selectedLayer = layers.find(l => l.id === selectedLayerId);
+  const selectedLayer = layers.find(l => l.id === selectedLayerId)
 
   const handleLayerReorder = useCallback((newLayers) => {
-    setLayers(newLayers);
-  }, []);
+    setLayers(newLayers)
+  }, [])
 
   const handleLayerToggle = useCallback((layerId) => {
     setLayers(prev => prev.map(layer =>
       layer.id === layerId ? { ...layer, enabled: !layer.enabled } : layer
-    ));
-  }, []);
+    ))
+  }, [])
 
   const handleCodeChange = useCallback((code) => {
     if (selectedLayerId === 'main') {
-      setMainCode(code);
+      setMainCode(code)
     } else {
       setLayers(prev => prev.map(layer =>
         layer.id === selectedLayerId ? { ...layer, code } : layer
-      ));
+      ))
     }
-  }, [selectedLayerId]);
+  }, [selectedLayerId])
 
   const handleExecute = async () => {
-    setIsExecuting(true);
-    setOutput('Executing...\n');
+    setIsExecuting(true)
+    setOutput('Executing...\n')
 
     try {
       // Build the complete Layer program
-      const enabledLayers = layers.filter(l => l.enabled).reverse(); // Reverse for bottom-to-top
-      const layerNames = enabledLayers.map(l => l.name);
+      const enabledLayers = layers.filter(l => l.enabled).reverse() // Reverse for bottom-to-top
+      const layerNames = enabledLayers.map(l => l.name)
 
-      let program = `@layers [${layerNames.join(', ')}]\n\n`;
+      let program = `@layers [${layerNames.join(', ')}]\n\n`
 
       enabledLayers.forEach(layer => {
-        program += `@layer ${layer.name} {\n${layer.code}\n}\n\n`;
-      });
+        program += `@layer ${layer.name} {\n${layer.code}\n}\n\n`
+      })
 
-      program += mainCode;
+      program += mainCode
 
-      const result = await executeLayerCode(program);
+      const result = await executeLayerCode(program)
 
       if (result.success) {
-        let outputText = '';
+        let outputText = ''
         if (result.logs && result.logs.length > 0) {
-          outputText += result.logs.join('\n') + '\n\n';
+          outputText += result.logs.join('\n') + '\n\n'
         }
-        outputText += `Result: ${result.result}`;
-        setOutput(outputText);
+        outputText += `Result: ${result.result}`
+        setOutput(outputText)
       } else {
-        setOutput(`Error: ${result.error}`);
+        setOutput(`Error: ${result.error}`)
       }
     } catch (error) {
-      setOutput(`Error: ${error.message}`);
+      setOutput(`Error: ${error.message}`)
     } finally {
-      setIsExecuting(false);
+      setIsExecuting(false)
     }
-  };
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -176,7 +176,7 @@ function App() {
         </Box>
       </Box>
     </Box>
-  );
+  )
 }
 
-export default App;
+export default App

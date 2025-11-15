@@ -1,6 +1,6 @@
-import React from 'react';
-import { Box, Typography, Paper } from '@mui/material';
-import TerminalIcon from '@mui/icons-material/Terminal';
+import React from 'react'
+import { Box, Typography } from '@mui/material'
+import TerminalIcon from '@mui/icons-material/Terminal'
 
 function OutputConsole({ output }) {
   return (
@@ -38,7 +38,7 @@ function OutputConsole({ output }) {
         </pre>
       </Box>
     </Box>
-  );
+  )
 }
 
-export default OutputConsole;
+export default OutputConsole

@@ -1,19 +1,18 @@
-import React from 'react';
+import React from 'react'
 import {
   Box,
   Card,
   CardContent,
   Typography,
   IconButton,
-  Chip,
   Divider,
   Button,
-} from '@mui/material';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import LockIcon from '@mui/icons-material/Lock';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import AddIcon from '@mui/icons-material/Add';
+} from '@mui/material'
+import VisibilityIcon from '@mui/icons-material/Visibility'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import LockIcon from '@mui/icons-material/Lock'
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import AddIcon from '@mui/icons-material/Add'
 
 const LayerCard = ({ layer, isSelected, onSelect, onToggle }) => {
   return (
@@ -58,8 +57,8 @@ const LayerCard = ({ layer, isSelected, onSelect, onToggle }) => {
           <IconButton
             size="small"
             onClick={(e) => {
-              e.stopPropagation();
-              if (!layer.locked) onToggle(layer.id);
+              e.stopPropagation()
+              if (!layer.locked) onToggle(layer.id)
             }}
             disabled={layer.locked}
           >
@@ -77,8 +76,8 @@ const LayerCard = ({ layer, isSelected, onSelect, onToggle }) => {
         </Typography>
       </CardContent>
     </Card>
-  );
-};
+  )
+}
 
 function LayerStack({ layers, selectedLayerId, onLayerSelect, onLayerToggle }) {
   return (
@@ -127,7 +126,7 @@ function LayerStack({ layers, selectedLayerId, onLayerSelect, onLayerToggle }) {
         Add Layer
       </Button>
     </Box>
-  );
+  )
 }
 
-export default LayerStack;
+export default LayerStack
