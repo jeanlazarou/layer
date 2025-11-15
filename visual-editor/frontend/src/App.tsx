@@ -195,33 +195,75 @@ function App() {
 
         const enabledLayerNames = layersMatch[1].split(',').map(s => s.trim())
 
-        // Parse @layer blocks
-        const layerBlockRegex = /@layer\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g
+        // Parse @layer blocks - handle nested braces correctly
         const parsedLayers: Record<string, string> = {}
+        const layerHeaderRegex = /@layer\s+(\w+)\s*\{/g
         let match
 
-        while ((match = layerBlockRegex.exec(content)) !== null) {
+        while ((match = layerHeaderRegex.exec(content)) !== null) {
           const layerName = match[1]
-          let layerCode = match[2]
+          const startPos = match.index + match[0].length
 
-          // Remove indentation (assuming 4 spaces)
-          layerCode = layerCode.split('\n')
-            .map(line => line.startsWith('    ') ? line.slice(4) : line)
-            .join('\n')
-            .trim()
+          // Find matching closing brace by counting
+          let braceCount = 1
+          let endPos = startPos
 
-          parsedLayers[layerName] = layerCode
+          while (braceCount > 0 && endPos < content.length) {
+            if (content[endPos] === '{') braceCount++
+            else if (content[endPos] === '}') braceCount--
+            endPos++
+          }
+
+          if (braceCount === 0) {
+            // Extract layer code (excluding the closing brace)
+            let layerCode = content.substring(startPos, endPos - 1)
+
+            // Remove indentation (typically 4 spaces)
+            layerCode = layerCode.split('\n')
+              .map(line => line.startsWith('    ') ? line.slice(4) : line)
+              .join('\n')
+              .trim()
+
+            parsedLayers[layerName] = layerCode
+          }
         }
 
         // Extract main expression (everything after last @layer block)
-        const lastLayerBlockEnd = content.lastIndexOf('}')
-        let mainExpression = content.slice(lastLayerBlockEnd + 1).trim()
+        // Reset regex and find last layer
+        const lastLayerMatch = /@layer\s+\w+\s*\{/g
+        let lastMatch
+        let lastLayerStart = 0
 
-        // Remove comment lines from main expression
-        mainExpression = mainExpression.split('\n')
-          .filter(line => !line.trim().startsWith('#'))
-          .join('\n')
-          .trim()
+        while ((lastMatch = lastLayerMatch.exec(content)) !== null) {
+          lastLayerStart = lastMatch.index
+        }
+
+        // Find the closing brace of the last layer
+        let mainExpression = ''
+        if (lastLayerStart > 0) {
+          const afterLastLayer = content.substring(lastLayerStart)
+          const layerStartBrace = afterLastLayer.indexOf('{') + 1
+          let braceCount = 1
+          let pos = layerStartBrace
+
+          while (braceCount > 0 && pos < afterLastLayer.length) {
+            if (afterLastLayer[pos] === '{') braceCount++
+            else if (afterLastLayer[pos] === '}') braceCount--
+            pos++
+          }
+
+          const mainStart = lastLayerStart + pos
+          mainExpression = content.substring(mainStart).trim()
+
+          // Remove leading comment lines
+          mainExpression = mainExpression.split('\n')
+            .filter(line => {
+              const trimmed = line.trim()
+              return trimmed.length > 0 && !trimmed.startsWith('#')
+            })
+            .join('\n')
+            .trim()
+        }
 
         // Build layer array: start with all standard layers
         const loadedLayers: Layer[] = []
