@@ -327,7 +327,7 @@ function App() {
           </Box>
 
           {/* Output Console */}
-          <Box sx={{ height: 200, borderTop: 1, borderColor: 'divider' }}>
+          <Box sx={{ height: 450, borderTop: 1, borderColor: 'divider' }}>
             <OutputConsole output={output} />
           </Box>
         </Box>
