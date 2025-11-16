@@ -13,11 +13,28 @@ interface UIComponent {
 
 const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent }) => {
   const parseXML = (xml: string): UIComponent | null => {
+    // Extract just the XML part (remove "Result: " prefix and any logs)
+    let cleanXml = xml
+
+    // Remove "Result: " prefix if present
+    if (cleanXml.includes('Result: ')) {
+      cleanXml = cleanXml.substring(cleanXml.indexOf('Result: ') + 8)
+    }
+
+    // Find the first < and last > to extract just the XML
+    const firstTag = cleanXml.indexOf('<')
+    const lastTag = cleanXml.lastIndexOf('>')
+
+    if (firstTag !== -1 && lastTag !== -1 && lastTag > firstTag) {
+      cleanXml = cleanXml.substring(firstTag, lastTag + 1).trim()
+    }
+
     // Simple XML parser for UIComponent output
     const parser = new DOMParser()
-    const doc = parser.parseFromString(xml, 'text/xml')
+    const doc = parser.parseFromString(cleanXml, 'text/xml')
 
     if (doc.documentElement.nodeName === 'parsererror') {
+      console.error('XML Parse Error:', cleanXml)
       return null
     }
 
@@ -169,7 +186,15 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent }) => {
   if (!component) {
     return (
       <Box sx={{ p: 2, color: 'error.main' }}>
-        <Typography variant="body2">Failed to parse UI output</Typography>
+        <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
+          Failed to parse UI output
+        </Typography>
+        <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
+          The output doesn't appear to be valid XML. Check the console for details.
+        </Typography>
+        <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', bgcolor: '#f5f5f5', p: 1, borderRadius: 1, color: '#333' }}>
+          {xmlContent.substring(0, 200)}...
+        </Typography>
       </Box>
     )
   }
