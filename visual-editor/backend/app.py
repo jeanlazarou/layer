@@ -9,6 +9,7 @@ from flask_cors import CORS
 import sys
 from io import StringIO
 import traceback
+import re
 
 # Add parent directory to path to import layer module
 sys.path.insert(0, '../../')
@@ -80,6 +81,111 @@ def execute_code():
         return jsonify({
             'success': False,
             'error': f'Server error: {str(e)}'
+        }), 500
+
+
+@app.route('/api/parse', methods=['POST'])
+def parse_layer_file():
+    """Parse a .layer file and return structured layer data."""
+    try:
+        data = request.get_json()
+        content = data.get('content', '')
+
+        if not content:
+            return jsonify({
+                'success': False,
+                'error': 'No content provided'
+            }), 400
+
+        # Parse @layers directive
+        layers_match = re.search(r'@layers\s*\[([^\]]+)\]', content)
+        if not layers_match:
+            return jsonify({
+                'success': False,
+                'error': 'No @layers directive found'
+            }), 400
+
+        enabled_layer_names = [name.strip() for name in layers_match.group(1).split(',')]
+
+        # Parse @layer blocks using brace counting
+        parsed_layers = {}
+        layer_header_pattern = re.compile(r'@layer\s+(\w+)\s*\{')
+
+        for match in layer_header_pattern.finditer(content):
+            layer_name = match.group(1)
+            start_pos = match.end()
+
+            # Find matching closing brace by counting
+            brace_count = 1
+            end_pos = start_pos
+
+            while brace_count > 0 and end_pos < len(content):
+                if content[end_pos] == '{':
+                    brace_count += 1
+                elif content[end_pos] == '}':
+                    brace_count -= 1
+                end_pos += 1
+
+            if brace_count == 0:
+                # Extract layer code (excluding the closing brace)
+                layer_code = content[start_pos:end_pos - 1]
+
+                # Remove indentation (typically 4 spaces)
+                lines = layer_code.split('\n')
+                dedented_lines = []
+                for line in lines:
+                    if line.startswith('    '):
+                        dedented_lines.append(line[4:])
+                    else:
+                        dedented_lines.append(line)
+
+                parsed_layers[layer_name] = '\n'.join(dedented_lines).strip()
+
+        # Extract main expression (everything after last @layer block)
+        last_layer_matches = list(layer_header_pattern.finditer(content))
+        main_expression = ''
+
+        if last_layer_matches:
+            last_match = last_layer_matches[-1]
+            last_layer_start = last_match.start()
+
+            # Find the closing brace of the last layer
+            after_last_layer = content[last_layer_start:]
+            layer_start_brace = after_last_layer.index('{') + 1
+            brace_count = 1
+            pos = layer_start_brace
+
+            while brace_count > 0 and pos < len(after_last_layer):
+                if after_last_layer[pos] == '{':
+                    brace_count += 1
+                elif after_last_layer[pos] == '}':
+                    brace_count -= 1
+                pos += 1
+
+            main_start = last_layer_start + pos
+            main_expression = content[main_start:].strip()
+
+            # Remove leading comment lines
+            lines = main_expression.split('\n')
+            main_lines = []
+            for line in lines:
+                trimmed = line.strip()
+                if trimmed and not trimmed.startswith('#'):
+                    main_lines.append(line)
+
+            main_expression = '\n'.join(main_lines).strip()
+
+        return jsonify({
+            'success': True,
+            'enabledLayers': enabled_layer_names,
+            'layers': parsed_layers,
+            'mainExpression': main_expression
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Parse error: {str(e)}\n{traceback.format_exc()}'
         }), 500
 
 

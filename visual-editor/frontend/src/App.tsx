@@ -9,7 +9,7 @@ import LayerStack from './components/LayerStack'
 import CodeEditor from './components/CodeEditor'
 import OutputConsole from './components/OutputConsole'
 import FlowDiagram from './components/FlowDiagram'
-import { executeLayerCode } from './api/layerApi'
+import { executeLayerCode, parseLayerFile } from './api/layerApi'
 import type { Layer, LayerId } from './types'
 
 const INITIAL_LAYERS: Layer[] = [
@@ -177,93 +177,24 @@ function App() {
     fileInputRef.current?.click()
   }, [])
 
-  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const content = e.target?.result as string
 
-        // Parse @layers directive
-        const layersMatch = content.match(/@layers\s*\[([^\]]+)\]/)
-        if (!layersMatch) {
-          setOutput('Error: No @layers directive found')
+        // Send to backend for parsing
+        const parseResult = await parseLayerFile(content)
+
+        if (!parseResult.success || !parseResult.enabledLayers || !parseResult.layers) {
+          setOutput(`Error: ${parseResult.error || 'Failed to parse file'}`)
           return
         }
 
-        const enabledLayerNames = layersMatch[1].split(',').map(s => s.trim())
-
-        // Parse @layer blocks - handle nested braces correctly
-        const parsedLayers: Record<string, string> = {}
-        const layerHeaderRegex = /@layer\s+(\w+)\s*\{/g
-        let match
-
-        while ((match = layerHeaderRegex.exec(content)) !== null) {
-          const layerName = match[1]
-          const startPos = match.index + match[0].length
-
-          // Find matching closing brace by counting
-          let braceCount = 1
-          let endPos = startPos
-
-          while (braceCount > 0 && endPos < content.length) {
-            if (content[endPos] === '{') braceCount++
-            else if (content[endPos] === '}') braceCount--
-            endPos++
-          }
-
-          if (braceCount === 0) {
-            // Extract layer code (excluding the closing brace)
-            let layerCode = content.substring(startPos, endPos - 1)
-
-            // Remove indentation (typically 4 spaces)
-            layerCode = layerCode.split('\n')
-              .map(line => line.startsWith('    ') ? line.slice(4) : line)
-              .join('\n')
-              .trim()
-
-            parsedLayers[layerName] = layerCode
-          }
-        }
-
-        // Extract main expression (everything after last @layer block)
-        // Reset regex and find last layer
-        const lastLayerMatch = /@layer\s+\w+\s*\{/g
-        let lastMatch
-        let lastLayerStart = 0
-
-        while ((lastMatch = lastLayerMatch.exec(content)) !== null) {
-          lastLayerStart = lastMatch.index
-        }
-
-        // Find the closing brace of the last layer
-        let mainExpression = ''
-        if (lastLayerStart > 0) {
-          const afterLastLayer = content.substring(lastLayerStart)
-          const layerStartBrace = afterLastLayer.indexOf('{') + 1
-          let braceCount = 1
-          let pos = layerStartBrace
-
-          while (braceCount > 0 && pos < afterLastLayer.length) {
-            if (afterLastLayer[pos] === '{') braceCount++
-            else if (afterLastLayer[pos] === '}') braceCount--
-            pos++
-          }
-
-          const mainStart = lastLayerStart + pos
-          mainExpression = content.substring(mainStart).trim()
-
-          // Remove leading comment lines
-          mainExpression = mainExpression.split('\n')
-            .filter(line => {
-              const trimmed = line.trim()
-              return trimmed.length > 0 && !trimmed.startsWith('#')
-            })
-            .join('\n')
-            .trim()
-        }
+        const { enabledLayers: enabledLayerNames, layers: parsedLayers, mainExpression } = parseResult
 
         // Build layer array: start with all standard layers
         const loadedLayers: Layer[] = []
@@ -297,9 +228,8 @@ function App() {
         })
 
         // INITIAL_LAYERS is already in correct UI order (debug, ui, core top-to-bottom)
-        // No need to reverse
         setLayers(loadedLayers)
-        setMainCode(mainExpression)
+        setMainCode(mainExpression || '')
         setSelectedLayerId('core')
 
         const enabledCount = loadedLayers.filter(l => l.enabled).length
