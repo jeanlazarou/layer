@@ -1,16 +1,19 @@
 import React, { useState, useCallback, useRef } from 'react'
-import { Box, AppBar, Toolbar, Typography, IconButton, Tooltip } from '@mui/material'
+import { Box, AppBar, Toolbar, Typography, IconButton, Tooltip, Dialog, DialogContent, DialogTitle } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import SaveIcon from '@mui/icons-material/Save'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
+import OpenInFullIcon from '@mui/icons-material/OpenInFull'
+import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen'
 import LayerStack from './components/LayerStack'
 import CodeEditor from './components/CodeEditor'
 import OutputConsole from './components/OutputConsole'
 import FlowDiagram from './components/FlowDiagram'
 import { executeLayerCode, parseLayerFile } from './api/layerApi'
 import type { Layer, LayerId } from './types'
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 
 const INITIAL_LAYERS: Layer[] = [
   {
@@ -61,6 +64,7 @@ function App() {
   const [output, setOutput] = useState('')
   const [isExecuting, setIsExecuting] = useState(false)
   const [showFlowDiagram, setShowFlowDiagram] = useState(false)
+  const [consoleMaximized, setConsoleMaximized] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
@@ -315,21 +319,42 @@ function App() {
           />
         </Box>
 
-        {/* Code Editor and Output - Center Panel */}
+        {/* Code Editor and Output - Center Panel with Resizable Splitter */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {/* Code Editor */}
-          <Box sx={{ flex: 1, overflow: 'hidden' }}>
-            <CodeEditor
-              code={selectedLayer ? selectedLayer.code : mainCode}
-              layerName={selectedLayer ? selectedLayer.name : 'main'}
-              onChange={handleCodeChange}
-            />
-          </Box>
+          <PanelGroup direction="vertical">
+            {/* Code Editor Panel */}
+            <Panel defaultSize={60} minSize={20}>
+              <Box sx={{ height: '100%', overflow: 'hidden' }}>
+                <CodeEditor
+                  code={selectedLayer ? selectedLayer.code : mainCode}
+                  layerName={selectedLayer ? selectedLayer.name : 'main'}
+                  onChange={handleCodeChange}
+                />
+              </Box>
+            </Panel>
 
-          {/* Output Console */}
-          <Box sx={{ height: 450, borderTop: 1, borderColor: 'divider' }}>
-            <OutputConsole output={output} />
-          </Box>
+            {/* Resize Handle */}
+            <PanelResizeHandle>
+              <Box
+                sx={{
+                  height: '4px',
+                  backgroundColor: 'divider',
+                  cursor: 'row-resize',
+                  '&:hover': {
+                    backgroundColor: 'primary.main',
+                  },
+                  transition: 'background-color 0.2s'
+                }}
+              />
+            </PanelResizeHandle>
+
+            {/* Output Console Panel */}
+            <Panel defaultSize={40} minSize={15}>
+              <Box sx={{ height: '100%', borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
+                <OutputConsole output={output} onMaximize={() => setConsoleMaximized(true)} />
+              </Box>
+            </Panel>
+          </PanelGroup>
         </Box>
 
         {/* Flow Diagram - Right Panel (Collapsible) */}
@@ -339,6 +364,27 @@ function App() {
           </Box>
         )}
       </Box>
+
+      {/* Maximized Console Dialog */}
+      <Dialog
+        open={consoleMaximized}
+        onClose={() => setConsoleMaximized(false)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: { height: '90vh' }
+        }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Output Console
+          <IconButton onClick={() => setConsoleMaximized(false)} size="small">
+            <CloseFullscreenIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <OutputConsole output={output} />
+        </DialogContent>
+      </Dialog>
     </Box>
   )
 }

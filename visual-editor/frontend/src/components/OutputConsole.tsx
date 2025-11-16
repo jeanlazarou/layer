@@ -3,13 +3,15 @@ import { Box, Typography, IconButton, Tooltip } from '@mui/material'
 import TerminalIcon from '@mui/icons-material/Terminal'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import CodeIcon from '@mui/icons-material/Code'
+import OpenInFullIcon from '@mui/icons-material/OpenInFull'
 import UIPreview from './UIPreview'
 
 interface OutputConsoleProps {
   output: string
+  onMaximize?: () => void
 }
 
-const OutputConsole: React.FC<OutputConsoleProps> = ({ output }) => {
+const OutputConsole: React.FC<OutputConsoleProps> = ({ output, onMaximize }) => {
   const [viewMode, setViewMode] = useState<'text' | 'preview'>('text')
 
   // Check if output contains UI XML
@@ -64,6 +66,23 @@ const OutputConsole: React.FC<OutputConsoleProps> = ({ output }) => {
               </IconButton>
             </Tooltip>
           </>
+        )}
+
+        {/* Maximize button */}
+        {onMaximize && (
+          <Tooltip title="Maximize">
+            <IconButton
+              size="small"
+              onClick={onMaximize}
+              sx={{
+                color: '#888',
+                p: 0.5,
+                ml: 0.5,
+              }}
+            >
+              <OpenInFullIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
         )}
       </Box>
 
