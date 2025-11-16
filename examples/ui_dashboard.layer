@@ -18,9 +18,17 @@
         | [] -> 0
         | [x, ...xs] -> 1 + length(xs)
 
-    fn first_item(lst) =
+    fn max(a, b) =
+        match a > b with
+        | true -> a
+        | false -> b
+
+    fn max_list(lst) =
         match lst with
-        | [x, ...xs] -> x
+        | [x] -> x
+        | [x, ...xs] ->
+            let rest_max = max_list(xs) in
+            max(x, rest_max)
 
     # Sample data
     fn sales_data() = [120, 340, 280, 450, 390]
@@ -61,7 +69,7 @@
         let data = sales_data() in
         let total = sum_list(data) in
         let average = avg_list(data) in
-        let sample = first_item(data) in
+        let peak = max_list(data) in
         view({
             title: "Sales Analytics",
             children: [
@@ -75,8 +83,8 @@
                     text({content: average})
                 ]),
                 row([
-                    text({content: "First Value: "}),
-                    text({content: sample})
+                    text({content: "Peak Sales: "}),
+                    text({content: peak})
                 ]),
                 row([
                     text({content: "Data Points: "}),
