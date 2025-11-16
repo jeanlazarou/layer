@@ -1,0 +1,153 @@
+# Dashboard UI Demo
+# A comprehensive dashboard showing various widgets and data displays
+
+@layers [core, ui]
+
+@layer core {
+    # Data calculations
+    fn sum_list(lst) =
+        match lst with
+        | [] -> 0
+        | [x, ...xs] -> x + sum_list(xs)
+
+    fn avg_list(lst) =
+        sum_list(lst) / length(lst)
+
+    fn max_list(lst) =
+        match lst with
+        | [x] -> x
+        | [x, ...xs] ->
+            let rest_max = max_list(xs) in
+            match x > rest_max with
+            | true -> x
+            | false -> rest_max
+
+    fn length(lst) =
+        match lst with
+        | [] -> 0
+        | [x, ...xs] -> 1 + length(xs)
+
+    # Sample data
+    fn sales_data() = [120, 340, 280, 450, 390]
+    fn user_count() = 1247
+    fn revenue() = 45230
+    fn growth_rate() = 23
+}
+
+@layer ui {
+    # Stat card component
+    fn stat_card(title, value, unit) =
+        view({
+            title: title,
+            children: [
+                text({content: title}),
+                row([
+                    text({content: value}),
+                    text({content: unit})
+                ])
+            ]
+        })
+
+    # KPI Dashboard section
+    fn kpi_section() =
+        view({
+            title: "Key Performance Indicators",
+            children: [
+                row([
+                    stat_card("Total Users", user_count(), "users"),
+                    stat_card("Revenue", revenue(), "USD"),
+                    stat_card("Growth", growth_rate(), "%")
+                ])
+            ]
+        })
+
+    # Sales metrics section
+    fn sales_section() =
+        let data = sales_data() in
+        let total = sum_list(data) in
+        let average = avg_list(data) in
+        let peak = max_list(data) in
+        view({
+            title: "Sales Analytics",
+            children: [
+                text({content: "Sales Performance"}),
+                row([
+                    text({content: "Total Sales: "}),
+                    text({content: total})
+                ]),
+                row([
+                    text({content: "Average: "}),
+                    text({content: average})
+                ]),
+                row([
+                    text({content: "Peak: "}),
+                    text({content: peak})
+                ]),
+                row([
+                    text({content: "Data Points: "}),
+                    text({content: length(data)})
+                ])
+            ]
+        })
+
+    # Activity log section
+    fn activity_section() =
+        view({
+            title: "Recent Activity",
+            children: [
+                text({content: "Latest Events"}),
+                row([
+                    text({content: "✓"}),
+                    text({content: "New user registered"})
+                ]),
+                row([
+                    text({content: "✓"}),
+                    text({content: "Sale completed: 450 USD"})
+                ]),
+                row([
+                    text({content: "✓"}),
+                    text({content: "Report generated"})
+                ]),
+                row([
+                    text({content: "⚠"}),
+                    text({content: "Warning: High traffic detected"})
+                ])
+            ]
+        })
+
+    # Action buttons section
+    fn actions_section() =
+        view({
+            title: "Quick Actions",
+            children: [
+                row([
+                    button({label: "Refresh Data"}),
+                    button({label: "Export Report"}),
+                    button({label: "Settings"})
+                ])
+            ]
+        })
+
+    # Main dashboard
+    fn dashboard() =
+        view({
+            title: "Layer Analytics Dashboard",
+            children: [
+                text({content: "=== DASHBOARD ==="}),
+                text({content: ""}),
+                kpi_section(),
+                text({content: ""}),
+                row([
+                    sales_section(),
+                    activity_section()
+                ]),
+                text({content: ""}),
+                actions_section(),
+                text({content: ""}),
+                text({content: "Last updated: 2025-11-16"})
+            ]
+        })
+}
+
+# Render the dashboard
+render(dashboard())
