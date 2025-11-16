@@ -14,6 +14,7 @@ import FlowDiagram from './components/FlowDiagram'
 import { executeLayerCode, parseLayerFile } from './api/layerApi'
 import type { Layer, LayerId } from './types'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import type { editor } from 'monaco-editor'
 
 const INITIAL_LAYERS: Layer[] = [
   {
@@ -66,8 +67,24 @@ function App() {
   const [showFlowDiagram, setShowFlowDiagram] = useState(false)
   const [consoleMaximized, setConsoleMaximized] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
+
+  // Handle panel resize - update Monaco editor layout
+  const handlePanelResize = useCallback(() => {
+    if (editorRef.current) {
+      // Use setTimeout to ensure the DOM has updated
+      setTimeout(() => {
+        editorRef.current?.layout()
+      }, 0)
+    }
+  }, [])
+
+  // Store editor instance when it mounts
+  const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
+    editorRef.current = editor
+  }, [])
 
   const handleLayerReorder = useCallback((newLayers: Layer[]) => {
     setLayers(newLayers)
@@ -321,7 +338,7 @@ function App() {
 
         {/* Code Editor and Output - Center Panel with Resizable Splitter */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <PanelGroup direction="vertical">
+          <PanelGroup direction="vertical" onLayout={handlePanelResize}>
             {/* Code Editor Panel */}
             <Panel defaultSize={60} minSize={20}>
               <Box sx={{ height: '100%', overflow: 'hidden' }}>
@@ -329,6 +346,7 @@ function App() {
                   code={selectedLayer ? selectedLayer.code : mainCode}
                   layerName={selectedLayer ? selectedLayer.name : 'main'}
                   onChange={handleCodeChange}
+                  onEditorMount={handleEditorMount}
                 />
               </Box>
             </Panel>
