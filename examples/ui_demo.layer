@@ -1,0 +1,103 @@
+# Interactive UI Demo
+# Demonstrates various UI components and layouts
+
+@layers [core, ui]
+
+@layer core {
+    fn add(a, b) = a + b
+    fn multiply(a, b) = a * b
+    fn square(n) = n * n
+
+    fn factorial(n) =
+        match n with
+        | 0 -> 1
+        | n -> n * factorial(n - 1)
+
+    fn fibonacci(n) =
+        match n with
+        | 0 -> 0
+        | 1 -> 1
+        | n -> fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+@layer ui {
+    fn calculator_section() =
+        view({
+            title: "Calculator",
+            children: [
+                text({content: "Basic Operations"}),
+                row([
+                    text({content: "2 + 3 = "}),
+                    text({content: add(2, 3)})
+                ]),
+                row([
+                    text({content: "4 × 5 = "}),
+                    text({content: multiply(4, 5)})
+                ]),
+                row([
+                    text({content: "7² = "}),
+                    text({content: square(7)})
+                ])
+            ]
+        })
+
+    fn factorial_section() =
+        view({
+            title: "Factorials",
+            children: [
+                text({content: "Factorial Examples"}),
+                row([
+                    text({content: "5! = "}),
+                    text({content: factorial(5)})
+                ]),
+                row([
+                    text({content: "6! = "}),
+                    text({content: factorial(6)})
+                ]),
+                row([
+                    text({content: "7! = "}),
+                    text({content: factorial(7)})
+                ])
+            ]
+        })
+
+    fn fibonacci_section() =
+        view({
+            title: "Fibonacci",
+            children: [
+                text({content: "Fibonacci Sequence"}),
+                row([
+                    text({content: "fib(0) = "}),
+                    text({content: fibonacci(0)})
+                ]),
+                row([
+                    text({content: "fib(5) = "}),
+                    text({content: fibonacci(5)})
+                ]),
+                row([
+                    text({content: "fib(8) = "}),
+                    text({content: fibonacci(8)})
+                ])
+            ]
+        })
+
+    fn app() =
+        view({
+            title: "Layer UI Interactive Demo",
+            children: [
+                text({content: "Welcome to Layer Language!"}),
+                text({content: "---"}),
+                calculator_section(),
+                text({content: "---"}),
+                factorial_section(),
+                text({content: "---"}),
+                fibonacci_section(),
+                text({content: "---"}),
+                button({label: "Refresh"}),
+                button({label: "Export"})
+            ]
+        })
+}
+
+# Render the complete UI
+render(app())
