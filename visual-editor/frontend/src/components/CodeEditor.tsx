@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React, { useRef, useEffect } from 'react'
 import { Box, Typography, Chip } from '@mui/material'
 import Editor from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
@@ -12,6 +12,7 @@ interface CodeEditorProps {
 
 const CodeEditor: React.FC<CodeEditorProps> = ({ code, layerName, onChange, onEditorMount }) => {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
 
   const handleEditorDidMount = (editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor
@@ -23,6 +24,23 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ code, layerName, onChange, onEd
   const handleEditorChange = (value: string | undefined) => {
     onChange(value || '')
   }
+
+  // Use ResizeObserver to detect container size changes
+  useEffect(() => {
+    if (!containerRef.current || !editorRef.current) return
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (editorRef.current) {
+        editorRef.current.layout()
+      }
+    })
+
+    resizeObserver.observe(containerRef.current)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [editorRef.current])
 
   const getLayerColor = (name: string): string => {
     const colors: Record<string, string> = {
@@ -62,7 +80,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ code, layerName, onChange, onEd
       </Box>
 
       {/* Monaco Editor */}
-      <Box sx={{ flex: 1 }}>
+      <Box ref={containerRef} sx={{ flex: 1 }}>
         <Editor
           height="100%"
           defaultLanguage="python"
@@ -75,7 +93,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ code, layerName, onChange, onEd
             fontSize: 14,
             lineNumbers: 'on',
             scrollBeyondLastLine: false,
-            automaticLayout: true,
+            automaticLayout: false,
             tabSize: 2,
             wordWrap: 'on',
           }}
