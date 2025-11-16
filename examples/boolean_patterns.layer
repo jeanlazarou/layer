@@ -1,0 +1,34 @@
+# Boolean Pattern Matching Example
+# Demonstrates matching on true/false values
+
+@layers [core]
+
+@layer core {
+    fn is_positive(n) =
+        match n > 0 with
+        | true -> "positive"
+        | false -> "negative or zero"
+
+    fn describe_number(n) =
+        let pos = n > 0 in
+        let zero = n == 0 in
+        match zero with
+        | true -> "zero"
+        | false ->
+            match pos with
+            | true -> "positive"
+            | false -> "negative"
+
+    fn max(a, b) =
+        match a > b with
+        | true -> a
+        | false -> b
+
+    fn min(a, b) =
+        match a < b with
+        | true -> a
+        | false -> b
+}
+
+# Test the functions
+is_positive(5)

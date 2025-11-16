@@ -210,6 +210,12 @@ class Interpreter:
                 return {}
             return None
 
+        # Boolean pattern
+        if isinstance(pattern, BooleanPattern):
+            if pattern.value == value:
+                return {}
+            return None
+
         # Identifier pattern (binds variable or wildcard)
         if isinstance(pattern, IdentifierPattern):
             if pattern.name == '_':

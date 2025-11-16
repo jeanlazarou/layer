@@ -132,6 +132,12 @@ class StringPattern(ASTNode):
 
 
 @dataclass
+class BooleanPattern(ASTNode):
+    """Boolean pattern for matching (true/false)."""
+    value: bool
+
+
+@dataclass
 class IdentifierPattern(ASTNode):
     """Variable binding pattern."""
     name: str

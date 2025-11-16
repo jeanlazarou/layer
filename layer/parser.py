@@ -244,6 +244,15 @@ class Parser:
                 column=str_token.column
             )
 
+        # Boolean pattern
+        if self.match(TokenType.BOOLEAN):
+            bool_token = self.advance()
+            return BooleanPattern(
+                value=bool_token.value,
+                line=bool_token.line,
+                column=bool_token.column
+            )
+
         # List pattern
         if self.match(TokenType.LBRACKET):
             return self.parse_list_pattern()
