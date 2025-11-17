@@ -36,10 +36,13 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
       // Check if this is a digit button (result is a single digit 0-9 or decimal)
       const isDigit = /^[0-9.]$/.test(result.trim())
 
-      if (isClear && inputs.display !== undefined) {
+      // Check if there's a display field (either already in state or in the component)
+      const hasDisplay = 'display' in inputs || xmlContent.includes('name="display"')
+
+      if (isClear && hasDisplay) {
         // Clear the display
         setInputs(prev => ({ ...prev, display: '0' }))
-      } else if (isDigit && inputs.display !== undefined) {
+      } else if (isDigit && hasDisplay) {
         // Append digit to display field
         const currentDisplay = inputs.display || '0'
         const newDisplay = currentDisplay === '0' ? result : currentDisplay + result
@@ -49,14 +52,14 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
         setResults(prev => ({ ...prev, [onclick]: result }))
 
         // If there's a display field and this is a calculation result, update display with result
-        if (inputs.display !== undefined && !isNaN(parseFloat(result))) {
+        if (hasDisplay && !isNaN(parseFloat(result))) {
           setInputs(prev => ({ ...prev, display: result }))
         }
       }
     } catch (error) {
       console.error('Error executing onclick:', error)
     }
-  }, [onExecute, inputs])
+  }, [onExecute, inputs, xmlContent])
   const parseXML = (xml: string): UIComponent | null => {
     // Extract just the XML part (remove "Result: " prefix and any logs)
     let cleanXml = xml
