@@ -9,9 +9,10 @@ import UIPreview from './UIPreview'
 interface OutputConsoleProps {
   output: string
   onMaximize?: () => void
+  onExecute?: (expression: string, inputs: Record<string, string>) => Promise<string>
 }
 
-const OutputConsole: React.FC<OutputConsoleProps> = ({ output, onMaximize }) => {
+const OutputConsole: React.FC<OutputConsoleProps> = ({ output, onMaximize, onExecute }) => {
   const [viewMode, setViewMode] = useState<'text' | 'preview'>('text')
 
   // Check if output contains UI XML
@@ -110,7 +111,7 @@ const OutputConsole: React.FC<OutputConsoleProps> = ({ output, onMaximize }) => 
             bgcolor: '#f5f5f5',
           }}
         >
-          <UIPreview xmlContent={output} />
+          <UIPreview xmlContent={output} onExecute={onExecute} />
         </Box>
       )}
     </Box>

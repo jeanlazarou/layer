@@ -1,0 +1,43 @@
+# Interactive Calculator Example
+# Demonstrates interactive UI with input fields and buttons
+
+@layers [core, ui]
+
+@layer core {
+    fn add(a, b) = a + b
+    fn subtract(a, b) = a - b
+    fn multiply(a, b) = a * b
+    fn divide(a, b) =
+        match b with
+        | 0 -> "Error: Division by zero"
+        | _ -> a / b
+}
+
+@layer ui {
+    fn calculator() =
+        view({
+            title: "Interactive Calculator",
+            children: [
+                text({content: "Enter two numbers and click an operation:"}),
+                container({
+                    layout: "horizontal",
+                    children: [
+                        input({name: "num1", placeholder: "First number"}),
+                        input({name: "num2", placeholder: "Second number"})
+                    ]
+                }),
+                container({
+                    layout: "horizontal",
+                    children: [
+                        button({label: "Add", onclick: "add(num1, num2)"}),
+                        button({label: "Subtract", onclick: "subtract(num1, num2)"}),
+                        button({label: "Multiply", onclick: "multiply(num1, num2)"}),
+                        button({label: "Divide", onclick: "divide(num1, num2)"})
+                    ]
+                })
+            ]
+        })
+}
+
+# Main expression
+calculator()

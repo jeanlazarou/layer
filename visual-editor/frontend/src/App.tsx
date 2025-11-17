@@ -144,6 +144,48 @@ function App() {
     }
   }
 
+  const handleInteractiveExecute = useCallback(async (expression: string, inputs: Record<string, string>): Promise<string> => {
+    try {
+      // Build the Layer program with current layers
+      const enabledLayers = layers.filter(l => l.enabled).reverse()
+      const layerNames = enabledLayers.map(l => l.name)
+
+      let program = `@layers [${layerNames.join(', ')}]\n\n`
+
+      enabledLayers.forEach(layer => {
+        program += `@layer ${layer.name} {\n${layer.code}\n}\n\n`
+      })
+
+      // Add input bindings as let expressions
+      const inputBindings = Object.entries(inputs)
+        .map(([name, value]) => {
+          // Try to parse as number, otherwise treat as string
+          const numValue = parseFloat(value)
+          const layerValue = !isNaN(numValue) ? numValue : `"${value}"`
+          return `let ${name} = ${layerValue} in`
+        })
+        .join('\n')
+
+      // Execute the expression with input bindings
+      if (inputBindings) {
+        program += `${inputBindings}\n${expression}`
+      } else {
+        program += expression
+      }
+
+      const result = await executeLayerCode(program)
+
+      if (result.success) {
+        return result.result || ''
+      } else {
+        return `Error: ${result.error}`
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      return `Error: ${errorMessage}`
+    }
+  }, [layers])
+
   const handleSave = useCallback(() => {
     // Build Layer source code format
     const enabledLayers = layers.filter(l => l.enabled).reverse() // Reverse for bottom-to-top
@@ -351,7 +393,11 @@ function App() {
             {/* Output Console Panel */}
             <Panel defaultSize={40} minSize={15}>
               <Box sx={{ height: '100%', borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
-                <OutputConsole output={output} onMaximize={() => setConsoleMaximized(true)} />
+                <OutputConsole
+                  output={output}
+                  onMaximize={() => setConsoleMaximized(true)}
+                  onExecute={handleInteractiveExecute}
+                />
               </Box>
             </Panel>
           </PanelGroup>
@@ -382,7 +428,7 @@ function App() {
           </IconButton>
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
-          <OutputConsole output={output} />
+          <OutputConsole output={output} onExecute={handleInteractiveExecute} />
         </DialogContent>
       </Dialog>
     </Box>

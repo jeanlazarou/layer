@@ -1,8 +1,9 @@
-import React from 'react'
-import { Box, Typography } from '@mui/material'
+import React, { useState, useCallback } from 'react'
+import { Box, Typography, Button, TextField } from '@mui/material'
 
 interface UIPreviewProps {
   xmlContent: string
+  onExecute?: (expression: string, inputs: Record<string, string>) => Promise<string>
 }
 
 interface UIComponent {
@@ -11,7 +12,29 @@ interface UIComponent {
   children: (UIComponent | string)[]
 }
 
-const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent }) => {
+const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
+  const [inputs, setInputs] = useState<Record<string, string>>({})
+  const [results, setResults] = useState<Record<string, string>>({})
+
+  const handleInputChange = useCallback((name: string, value: string) => {
+    setInputs(prev => ({ ...prev, [name]: value }))
+  }, [])
+
+  const handleButtonClick = useCallback(async (onclick: string) => {
+    if (!onExecute) {
+      console.log('Button clicked:', onclick, 'with inputs:', inputs)
+      return
+    }
+
+    try {
+      // Execute the onclick expression with current input values
+      const result = await onExecute(onclick, inputs)
+      // Store result for display (could be used by other components)
+      setResults(prev => ({ ...prev, [onclick]: result }))
+    } catch (error) {
+      console.error('Error executing onclick:', error)
+    }
+  }, [onExecute, inputs])
   const parseXML = (xml: string): UIComponent | null => {
     // Extract just the XML part (remove "Result: " prefix and any logs)
     let cleanXml = xml
@@ -108,47 +131,36 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent }) => {
 
       case 'button':
         return (
-          <Box
+          <Button
             key={key}
-            component="button"
+            variant="contained"
+            onClick={() => props.onclick && handleButtonClick(props.onclick)}
+            disabled={!props.onclick}
             sx={{
-              px: 2,
-              py: 1,
               mr: 1,
               mb: 1,
-              bgcolor: '#1976d2',
-              color: 'white',
-              border: 'none',
-              borderRadius: 1,
-              cursor: 'pointer',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              '&:hover': {
-                bgcolor: '#1565c0',
-              },
+              textTransform: 'none',
             }}
           >
             {props.label || children}
-          </Box>
+          </Button>
         )
 
       case 'input':
+        const inputName = props.name || `input_${key}`
+        const inputValue = inputs[inputName] || props.value || ''
         return (
-          <Box
+          <TextField
             key={key}
-            component="input"
-            sx={{
-              px: 1.5,
-              py: 0.75,
-              mb: 1,
-              border: '1px solid #ccc',
-              borderRadius: 1,
-              fontSize: '0.875rem',
-              width: '200px',
-            }}
+            size="small"
             placeholder={props.placeholder}
-            value={props.value || ''}
-            readOnly
+            value={inputValue}
+            onChange={(e) => handleInputChange(inputName, e.target.value)}
+            sx={{
+              mb: 1,
+              mr: 1,
+              width: props.width || '200px',
+            }}
           />
         )
 
@@ -199,9 +211,32 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent }) => {
     )
   }
 
+  // Get the most recent result
+  const latestResult = Object.values(results).slice(-1)[0]
+
   return (
     <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 1, minHeight: 200 }}>
       {renderComponent(component, 0)}
+
+      {/* Display latest result */}
+      {latestResult && (
+        <Box
+          sx={{
+            mt: 2,
+            p: 2,
+            bgcolor: '#e3f2fd',
+            borderRadius: 1,
+            border: '2px solid #2196f3',
+          }}
+        >
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#1976d2', mb: 0.5 }}>
+            Result:
+          </Typography>
+          <Typography variant="body1" sx={{ fontFamily: 'monospace', color: '#333' }}>
+            {latestResult}
+          </Typography>
+        </Box>
+      )}
     </Box>
   )
 }
