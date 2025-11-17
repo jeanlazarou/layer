@@ -1,5 +1,5 @@
-# Interactive Calculator Example
-# Demonstrates interactive UI with input fields and buttons
+# Simple Calculator Example
+# Basic calculator with input fields for operands
 
 @layers [core, ui]
 
@@ -16,7 +16,7 @@
 @layer ui {
     fn calculator() =
         view({
-            title: "Interactive Calculator",
+            title: "Simple Calculator",
             children: [
                 text({content: "Enter two numbers and click an operation:"}),
                 row([

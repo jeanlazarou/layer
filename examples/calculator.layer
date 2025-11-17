@@ -1,0 +1,92 @@
+# Interactive Calculator
+# Full calculator with digit buttons and operations
+
+@layers [core, ui]
+
+@layer core {
+    # Basic arithmetic
+    fn add(a, b) = a + b
+    fn subtract(a, b) = a - b
+    fn multiply(a, b) = a * b
+    fn divide(a, b) =
+        match b with
+        | 0 -> "Error: Division by zero"
+        | _ -> a / b
+
+    # Parse and evaluate simple expressions
+    # For demo: individual operations
+    fn calc_7_plus_8() = 7 + 8
+    fn calc_9_times_6() = 9 * 6
+    fn calc_100_div_5() = 100 / 5
+    fn calc_50_minus_12() = 50 - 12
+
+    # Common calculations
+    fn square(n) = n * n
+    fn percentage(n, percent) = n * percent / 100
+}
+
+@layer ui {
+    fn calculator() =
+        view({
+            title: "Calculator",
+            children: [
+                text({content: "Interactive Calculator"}),
+                text({content: "Enter expression and click Calculate:"}),
+
+                # Expression input
+                input({name: "expr", placeholder: "e.g., 7 + 8 * 3", width: "300px"}),
+
+                # Quick operation buttons
+                text({content: "Quick Operations:"}),
+                row([
+                    button({label: "7 + 8", onclick: "calc_7_plus_8()"}),
+                    button({label: "9 × 6", onclick: "calc_9_times_6()"}),
+                    button({label: "100 ÷ 5", onclick: "calc_100_div_5()"}),
+                    button({label: "50 - 12", onclick: "calc_50_minus_12()"})
+                ]),
+
+                # Number pad
+                text({content: "Number Pad:"}),
+                row([
+                    button({label: "7", onclick: "7"}),
+                    button({label: "8", onclick: "8"}),
+                    button({label: "9", onclick: "9"}),
+                    button({label: "÷", onclick: "divide(expr, 1)"})
+                ]),
+                row([
+                    button({label: "4", onclick: "4"}),
+                    button({label: "5", onclick: "5"}),
+                    button({label: "6", onclick: "6"}),
+                    button({label: "×", onclick: "multiply(expr, 1)"})
+                ]),
+                row([
+                    button({label: "1", onclick: "1"}),
+                    button({label: "2", onclick: "2"}),
+                    button({label: "3", onclick: "3"}),
+                    button({label: "-", onclick: "subtract(expr, 0)"})
+                ]),
+                row([
+                    button({label: "0", onclick: "0"}),
+                    button({label: "Square", onclick: "square(expr)"}),
+                    button({label: "% of 100", onclick: "percentage(100, expr)"}),
+                    button({label: "+", onclick: "add(expr, 0)"})
+                ]),
+
+                # Advanced operations
+                text({content: "Custom Calculations:"}),
+                row([
+                    input({name: "a", placeholder: "Number 1", width: "120px"}),
+                    input({name: "b", placeholder: "Number 2", width: "120px"})
+                ]),
+                row([
+                    button({label: "a + b", onclick: "add(a, b)"}),
+                    button({label: "a - b", onclick: "subtract(a, b)"}),
+                    button({label: "a × b", onclick: "multiply(a, b)"}),
+                    button({label: "a ÷ b", onclick: "divide(a, b)"})
+                ])
+            ]
+        })
+}
+
+# Main expression
+render(calculator())
