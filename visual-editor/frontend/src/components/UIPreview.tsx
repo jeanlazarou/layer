@@ -30,31 +30,13 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
       // Execute the onclick expression with current input values
       const result = await onExecute(onclick, inputs)
 
-      // Check if this is a clear button
-      const isClear = onclick.includes('clear()')
+      // Store result for display in the result box
+      setResults(prev => ({ ...prev, [onclick]: result }))
 
-      // Check if this is a digit button (result is a single digit 0-9 or decimal)
-      const isDigit = /^[0-9.]$/.test(result.trim())
-
-      // Check if there's a display field (either already in state or in the component)
-      const hasDisplay = 'display' in inputs || xmlContent.includes('name="display"')
-
-      if (isClear && hasDisplay) {
-        // Clear the display
-        setInputs(prev => ({ ...prev, display: '0' }))
-      } else if (isDigit && hasDisplay) {
-        // Append digit to display field
-        const currentDisplay = inputs.display || '0'
-        const newDisplay = currentDisplay === '0' ? result : currentDisplay + result
-        setInputs(prev => ({ ...prev, display: newDisplay }))
-      } else {
-        // Store result for display (regular operation)
-        setResults(prev => ({ ...prev, [onclick]: result }))
-
-        // If there's a display field and this is a calculation result, update display with result
-        if (hasDisplay && !isNaN(parseFloat(result))) {
-          setInputs(prev => ({ ...prev, display: result }))
-        }
+      // Update the display input field if it exists and result is valid
+      // This allows Layer functions to control what appears in the display
+      if (xmlContent.includes('name="display"') && result && result !== 'undefined') {
+        setInputs(prev => ({ ...prev, display: result }))
       }
     } catch (error) {
       console.error('Error executing onclick:', error)

@@ -4,6 +4,15 @@
 @layers [core, ui]
 
 @layer core {
+    # String concatenation helper
+    fn concat(a, b) = a + b
+
+    # Append digit to display
+    fn append_digit(display, digit) =
+        match display with
+        | "0" -> digit
+        | _ -> concat(display, digit)
+
     # Basic arithmetic operations
     fn add(a, b) = a + b
     fn subtract(a, b) = a - b
@@ -33,26 +42,26 @@
 
                 # Calculator keypad (4 rows)
                 row([
-                    button({label: "7", onclick: "7"}),
-                    button({label: "8", onclick: "8"}),
-                    button({label: "9", onclick: "9"}),
+                    button({label: "7", onclick: "append_digit(display, '7')"}),
+                    button({label: "8", onclick: "append_digit(display, '8')"}),
+                    button({label: "9", onclick: "append_digit(display, '9')"}),
                     button({label: "÷", onclick: "divide(display, 1)"})
                 ]),
                 row([
-                    button({label: "4", onclick: "4"}),
-                    button({label: "5", onclick: "5"}),
-                    button({label: "6", onclick: "6"}),
+                    button({label: "4", onclick: "append_digit(display, '4')"}),
+                    button({label: "5", onclick: "append_digit(display, '5')"}),
+                    button({label: "6", onclick: "append_digit(display, '6')"}),
                     button({label: "×", onclick: "multiply(display, 1)"})
                 ]),
                 row([
-                    button({label: "1", onclick: "1"}),
-                    button({label: "2", onclick: "2"}),
-                    button({label: "3", onclick: "3"}),
+                    button({label: "1", onclick: "append_digit(display, '1')"}),
+                    button({label: "2", onclick: "append_digit(display, '2')"}),
+                    button({label: "3", onclick: "append_digit(display, '3')"}),
                     button({label: "-", onclick: "subtract(display, 0)"})
                 ]),
                 row([
-                    button({label: "0", onclick: "0"}),
-                    button({label: ".", onclick: "."}),
+                    button({label: "0", onclick: "append_digit(display, '0')"}),
+                    button({label: ".", onclick: "append_digit(display, '.')"}),
                     button({label: "x²", onclick: "square(display)"}),
                     button({label: "+", onclick: "add(display, 0)"})
                 ]),
