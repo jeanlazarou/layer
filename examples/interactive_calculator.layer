@@ -19,25 +19,19 @@
             title: "Interactive Calculator",
             children: [
                 text({content: "Enter two numbers and click an operation:"}),
-                container({
-                    layout: "horizontal",
-                    children: [
-                        input({name: "num1", placeholder: "First number"}),
-                        input({name: "num2", placeholder: "Second number"})
-                    ]
-                }),
-                container({
-                    layout: "horizontal",
-                    children: [
-                        button({label: "Add", onclick: "add(num1, num2)"}),
-                        button({label: "Subtract", onclick: "subtract(num1, num2)"}),
-                        button({label: "Multiply", onclick: "multiply(num1, num2)"}),
-                        button({label: "Divide", onclick: "divide(num1, num2)"})
-                    ]
-                })
+                row([
+                    input({name: "num1", placeholder: "First number"}),
+                    input({name: "num2", placeholder: "Second number"})
+                ]),
+                row([
+                    button({label: "Add", onclick: "add(num1, num2)"}),
+                    button({label: "Subtract", onclick: "subtract(num1, num2)"}),
+                    button({label: "Multiply", onclick: "multiply(num1, num2)"}),
+                    button({label: "Divide", onclick: "divide(num1, num2)"})
+                ])
             ]
         })
 }
 
 # Main expression
-calculator()
+render(calculator())
