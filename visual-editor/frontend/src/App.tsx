@@ -41,6 +41,17 @@ fn app() =
   })`,
   },
   {
+    id: 'data',
+    name: 'data',
+    enabled: false,
+    color: '#9c27b0',
+    code: `# Data layer for persistence
+# Example: saving factorial results
+fn save_result(n, result) =
+  let _ = write_json("results.json", {input: n, output: result}) in
+    result`,
+  },
+  {
     id: 'core',
     name: 'core',
     enabled: true,
