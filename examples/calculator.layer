@@ -11,6 +11,25 @@
         | "0" -> digit
         | _ -> display + digit
 
+    # Append operator to display with spaces
+    fn append_operator(display, op) =
+        match display with
+        | "" -> "0 " + op + " "
+        | _ -> display + " " + op + " "
+
+    # Evaluate expression in display (e.g., "13 + 2" -> "15")
+    fn evaluate(expr) =
+        let parts = split(" ", expr) in
+        match parts with
+        | [a, "+", b] -> to_string(to_float(a) + to_float(b))
+        | [a, "-", b] -> to_string(to_float(a) - to_float(b))
+        | [a, "*", b] -> to_string(to_float(a) * to_float(b))
+        | [a, "/", b] ->
+            match to_float(b) with
+            | 0.0 -> "Error"
+            | _ -> to_string(to_float(a) / to_float(b))
+        | _ -> expr
+
     # Calculator operations that work on display strings
     # These convert the display string to number, apply operation, convert back
     fn calc_square(display) =
@@ -46,30 +65,34 @@
                 # Display
                 input({name: "display", placeholder: "0", width: "280px"}),
 
-                # Calculator keypad (digits only)
+                # Calculator keypad with operators
                 row([
                     button({label: "7", onclick: "append_digit(display, '7')"}),
                     button({label: "8", onclick: "append_digit(display, '8')"}),
                     button({label: "9", onclick: "append_digit(display, '9')"}),
+                    button({label: "÷", onclick: "append_operator(display, '/')"}),
                     button({label: "C", onclick: "clear()"})
                 ]),
                 row([
                     button({label: "4", onclick: "append_digit(display, '4')"}),
                     button({label: "5", onclick: "append_digit(display, '5')"}),
                     button({label: "6", onclick: "append_digit(display, '6')"}),
+                    button({label: "×", onclick: "append_operator(display, '*')"}),
                     button({label: "x²", onclick: "calc_square(display)"})
                 ]),
                 row([
                     button({label: "1", onclick: "append_digit(display, '1')"}),
                     button({label: "2", onclick: "append_digit(display, '2')"}),
                     button({label: "3", onclick: "append_digit(display, '3')"}),
+                    button({label: "-", onclick: "append_operator(display, '-')"}),
                     button({label: "%", onclick: "calc_percent(display)"})
                 ]),
                 row([
                     button({label: "0", onclick: "append_digit(display, '0')"}),
                     button({label: ".", onclick: "append_digit(display, '.')"}),
-                    button({label: "00", onclick: "append_digit(display, '00')"}),
-                    button({label: "⌫", onclick: "display"})
+                    button({label: "=", onclick: "evaluate(display)"}),
+                    button({label: "+", onclick: "append_operator(display, '+')"}),
+                    button({label: " ", onclick: "display"})
                 ]),
 
                 # Two-number operations
