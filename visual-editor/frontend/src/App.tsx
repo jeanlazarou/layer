@@ -251,7 +251,7 @@ function App() {
 
         // Build layer array: start with all standard layers
         const loadedLayers: Layer[] = []
-        const standardLayerNames = new Set(['core', 'debug', 'ui'])
+        const standardLayerNames = new Set(['core', 'debug', 'ui', 'data'])
         const defaultColors = ['#f44336', '#2196f3', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4']
 
         // Add all standard layers (from INITIAL_LAYERS)
