@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Box, Typography, Button, TextField } from '@mui/material'
 
 interface UIPreviewProps {
@@ -95,6 +95,45 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
 
     return parseNode(doc.documentElement)
   }
+
+  // Helper function to extract all input field names from a component tree
+  const extractInputNames = (component: UIComponent | null): string[] => {
+    if (!component) return []
+
+    const names: string[] = []
+
+    const traverse = (comp: UIComponent | string) => {
+      if (typeof comp === 'string') return
+
+      if (comp.type === 'input' && comp.props.name) {
+        names.push(comp.props.name)
+      }
+
+      if (comp.children) {
+        comp.children.forEach(traverse)
+      }
+    }
+
+    traverse(component)
+    return names
+  }
+
+  // Initialize input fields when component is first loaded or changes
+  useEffect(() => {
+    const component = parseXML(xmlContent)
+    const inputNames = extractInputNames(component)
+
+    // Initialize all input fields with empty string if not already present
+    setInputs(prev => {
+      const newInputs = { ...prev }
+      inputNames.forEach(name => {
+        if (!(name in newInputs)) {
+          newInputs[name] = ''
+        }
+      })
+      return newInputs
+    })
+  }, [xmlContent])
 
   const renderComponent = (component: UIComponent | string, key: number): React.ReactNode => {
     if (typeof component === 'string') {
