@@ -40,3 +40,9 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Layer example outputs
+test_output.txt
+users.json
+results.json
+*.layer.out
