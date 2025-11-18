@@ -12,25 +12,51 @@ from typing import Any, List, Callable
 def setup_core_layer(layer_context):
     """Set up the core layer with built-in functions."""
 
-    # Arithmetic operators
+    # Helper to convert to number if it's a string
+    def to_number(val):
+        """Convert string to number if possible, otherwise return as-is."""
+        if isinstance(val, str):
+            try:
+                # Try integer first
+                if '.' not in val:
+                    return int(val)
+                # Otherwise float
+                return float(val)
+            except ValueError:
+                # If conversion fails, return the original string
+                return val
+        return val
+
+    # Arithmetic operators (with automatic string-to-number conversion)
     def add(x, y):
+        """Smart addition: concatenate strings, add numbers."""
+        # If both are strings, concatenate them
+        if isinstance(x, str) and isinstance(y, str):
+            return x + y
+        # Otherwise, convert to numbers and add
+        x, y = to_number(x), to_number(y)
         return x + y
 
     def subtract(x, y):
+        x, y = to_number(x), to_number(y)
         return x - y
 
     def multiply(x, y):
+        x, y = to_number(x), to_number(y)
         return x * y
 
     def divide(x, y):
+        x, y = to_number(x), to_number(y)
         if y == 0:
             raise ZeroDivisionError("Division by zero")
         return x / y
 
     def modulo(x, y):
+        x, y = to_number(x), to_number(y)
         return x % y
 
     def power(x, y):
+        x, y = to_number(x), to_number(y)
         return x ** y
 
     # Comparison operators
