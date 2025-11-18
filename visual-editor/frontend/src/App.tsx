@@ -76,6 +76,7 @@ function App() {
   const [isExecuting, setIsExecuting] = useState(false)
   const [showFlowDiagram, setShowFlowDiagram] = useState(false)
   const [consoleMaximized, setConsoleMaximized] = useState(false)
+  const [projectName, setProjectName] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
@@ -285,6 +286,13 @@ function App() {
         setMainCode(mainExpression || '')
         setSelectedLayerId('core')
 
+        // Extract and store project name (remove .layer extension)
+        const projectNameWithoutExt = file.name.replace(/\.layer$/, '')
+        setProjectName(projectNameWithoutExt)
+
+        // Update browser tab title
+        document.title = `${projectNameWithoutExt} - Layer Visual Editor`
+
         const enabledCount = loadedLayers.filter(l => l.enabled).length
         setOutput(`Loaded ${file.name}: ${enabledCount}/${loadedLayers.length} layers enabled`)
       } catch (error) {
@@ -304,7 +312,7 @@ function App() {
       <AppBar position="static" elevation={1}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            Layer Visual Editor
+            {projectName ? `${projectName} - Layer Visual Editor` : 'Layer Visual Editor'}
           </Typography>
           <Tooltip title="Execute Code">
             <IconButton
