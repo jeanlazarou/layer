@@ -396,3 +396,378 @@ This gives users a choice: pragmatic (direct) or pure (effects as values).
 ---
 
 **Conclusion:** Start with Option B for rapid development and practical learning, with a clear path to evolve toward Option A as we understand the requirements better.
+
+---
+
+# ANNEX: Deep Dive on Side Effects and Monads
+
+## The Fundamental Problem
+
+Side effects violate **referential transparency** - the property that you can replace a function call with its result:
+
+```layer
+# Pure function - referentially transparent
+fn double(x) = x * 2
+
+let a = double(5) in       # Can replace with 10
+let b = 10 in              # Same behavior!
+  a + b
+
+# Impure function - NOT referentially transparent
+fn read_file(path) = ...   # Returns different values over time!
+
+let a = read_file("data.txt") in   # Might be "hello"
+let b = read_file("data.txt") in   # Might be "goodbye"
+  a == b  # FALSE! Same call, different results
+```
+
+**The goal of functional programming:** Given the same parameters, always return the same result.
+
+**The reality of useful programs:** We need to read files, write to databases, interact with users - all things that change!
+
+**The question:** How do we reconcile purity with the need for change?
+
+---
+
+## How Monads Solve This: The Key Insight
+
+**Monads don't make side effects pure.** Instead, they make a crucial distinction:
+
+### Building vs. Executing
+
+#### Pure Part: Building Effect Descriptions
+
+```haskell
+-- This is a PURE VALUE describing an action
+readFileAction :: IO String
+readFileAction = readFile "data.txt"
+
+-- These two are IDENTICAL values (referentially transparent!)
+let action1 = readFile "data.txt"
+let action2 = readFile "data.txt"
+
+-- action1 == action2 is TRUE!
+-- They're the same DESCRIPTION of reading the file
+```
+
+#### Impure Part: Runtime Execution
+
+```haskell
+-- The Haskell runtime executes the description (outside your code)
+main :: IO ()
+main = readFileAction  -- Runtime performs the actual I/O
+```
+
+### The Mental Model
+
+**Without Monads (Direct Effects):**
+```javascript
+// You press "execute" on this function
+function process() {
+  let content = readFile("data.txt")  // 💥 Effect happens NOW
+  return content.toUpperCase()
+}
+```
+
+**With Monads (Effect Descriptions):**
+```haskell
+-- You build a "recipe" or "program"
+process :: IO String
+process = do
+  content <- readFile "data.txt"  -- DESCRIBING the read
+  return (toUpperCase content)     -- DESCRIBING the transform
+
+-- The recipe itself is PURE! Same inputs = same recipe
+-- But RUNNING the recipe produces different results
+```
+
+---
+
+## Concrete Analogy: Cooking Recipes
+
+### Impure Approach (Direct Execution)
+
+```
+Step 1: Get flour from the cupboard
+        ↓
+        💥 Cupboard might be empty! Not deterministic!
+```
+
+Every time you "read" this instruction, you might get a different result (flour or no flour).
+
+### Monad Approach (Recipe as Value)
+
+```
+Recipe (pure value):
+  "Instructions: Get flour from cupboard → Mix with eggs → Bake at 350°F"
+
+Recipe1 == Recipe2  ✓ (Same instructions)
+```
+
+The **recipe itself** is pure - two identical recipes are the same value, always.
+
+But **executing** the recipe can give different results (if you're out of flour).
+
+**Key insight:** We've separated the **description** (pure) from the **execution** (impure).
+
+---
+
+## How This Helps Functional Programming
+
+### 1. Referential Transparency of Descriptions
+
+```haskell
+-- These are the SAME VALUE (same description)
+let io1 = readFile "data.txt" >>= processData
+let io2 = readFile "data.txt" >>= processData
+
+-- You can reason about them algebraically!
+let io3 = let x = readFile "data.txt" in x >>= processData
+
+-- io1 == io2 == io3  ✓ All identical descriptions
+```
+
+### 2. Composition Without Execution
+
+```haskell
+-- Pure composition of effects (no execution yet!)
+let program = do
+  content <- readFile "input.txt"
+  let processed = toUpperCase content
+  writeFile "output.txt" processed
+  return processed
+
+-- I can pass this around, transform it, combine it
+-- WITHOUT executing it!
+let bigger = program >> readFile "other.txt"
+let logged = program >>= \result -> log result >> return result
+```
+
+### 3. Separation of Pure and Impure Code
+
+```haskell
+-- 100% PURE: business logic (easily testable)
+processUser :: User -> ValidatedUser
+processUser user =
+  if user.age >= 18
+    then ValidatedUser user
+    else InvalidUser "Too young"
+
+-- IMPURE BOUNDARY: effect description
+loadAndProcess :: IO ValidatedUser
+loadAndProcess = do
+  user <- loadUserFromDB           -- Impure
+  return (processUser user)        -- Pure function inside!
+```
+
+The pure logic (`processUser`) is completely separate from effects. You can test it without any I/O!
+
+---
+
+## Comparison with Layer Language Approaches
+
+### Option A: Effect Descriptions (Monadic Style)
+
+```layer
+# Building phase (pure) - just creating descriptions
+let readEffect = data.read_file("input.txt") in
+let processEffect = data.map_effect(toUpperCase, readEffect) in
+let writeEffect = data.write_file("output.txt", processEffect) in
+writeEffect  # This is just a DESCRIPTION!
+
+# Execution phase (impure) - runtime performs effects
+execute(writeEffect)  # Only this line causes I/O
+```
+
+**Characteristics:**
+- ✅ Effect descriptions are referentially transparent
+- ✅ Can compose without executing
+- ✅ Pure code testable without I/O
+- ❌ More complex mental model
+- ❌ Requires runtime support
+
+### Option B: Direct Effects (Current Implementation)
+
+```layer
+# Combined build + execute (impure)
+let content = data.read_file("input.txt") in  # 💥 Happens NOW
+let processed = toUpperCase(content) in
+data.write_file("output.txt", processed)      # 💥 Happens NOW
+```
+
+**Characteristics:**
+- ❌ Not referentially transparent (effects happen immediately)
+- ✅ Failure is explicit (Option type)
+- ✅ Composable (via map_option, unwrap)
+- ✅ Simple to understand
+- ✅ Pragmatic for real work
+
+---
+
+## The Fundamental Trade-offs
+
+### What Monads Give You
+
+✅ **Referential transparency** of effect *descriptions*
+- Same description = same value
+- Can replace `let x = readFile "a.txt" in x >> x` with `readFile "a.txt" >> readFile "a.txt"`
+
+✅ **Composability** without execution
+- Build complex effect sequences without running them
+- Pass effects as values to higher-order functions
+
+✅ **Testability** without I/O
+- Test with mock effect descriptions
+- Verify that correct effects are built, without executing
+
+✅ **Equational reasoning** about effect sequences
+- Use algebraic laws to transform programs
+- Optimize effect sequences
+
+### What Monads DON'T Give You
+
+❌ **Pure results from execution**
+- Executing `IO String` still depends on external state
+- Running the same `IO` action twice can produce different results
+
+❌ **Determinism of effects**
+- The *description* is deterministic
+- The *execution* is not
+
+❌ **Simplicity**
+- Monadic code has a learning curve
+- Mental overhead of "building vs executing"
+
+---
+
+## The Core Insight: Purity vs. Execution
+
+```
+┌─────────────────────────────────────────────────┐
+│ PURE WORLD (Your Code)                          │
+│                                                  │
+│  readFile :: FilePath -> IO String              │
+│  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                │
+│  This is a PURE function!                       │
+│  Same input = same IO action description        │
+│                                                  │
+│  Composition, transformation, reasoning - all pure│
+└─────────────────────────────────────────────────┘
+                       ↓
+                  Boundary
+                       ↓
+┌─────────────────────────────────────────────────┐
+│ IMPURE WORLD (Runtime/Interpreter)              │
+│                                                  │
+│  Actually reads the file                        │
+│  Actually writes to disk                        │
+│  Actually sends HTTP requests                   │
+│                                                  │
+│  This part is IMPURE and unrepeatable          │
+└─────────────────────────────────────────────────┘
+```
+
+**The monad approach:** Keep your code pure by only building descriptions. Let the runtime/interpreter do the dirty work.
+
+---
+
+## Example: Comparing Three Worlds
+
+### 1. Truly Impure (JavaScript/Python)
+
+```javascript
+function process() {
+  let content = readFile("data.txt")  // Effect happens NOW
+  let upper = content.toUpperCase()
+  writeFile("out.txt", upper)          // Effect happens NOW
+  return upper
+}
+
+// process() is completely impure
+// Can't test without actual I/O
+// Can't reason about it algebraically
+```
+
+### 2. Monadic (Haskell)
+
+```haskell
+process :: IO String
+process = do
+  content <- readFile "data.txt"      -- Building description
+  let upper = toUpperCase content     -- Pure computation
+  writeFile "out.txt" upper            -- Building description
+  return upper                         -- Building description
+
+-- process is a PURE VALUE (an IO action)
+-- Can test by inspecting the action structure
+-- Can compose: process >> process
+```
+
+### 3. Option Pattern (Layer - Option B)
+
+```layer
+fn process() =
+  let content_opt = data.read_file("data.txt") in  -- Effect NOW
+  let content = data.unwrap(content_opt, "") in
+  let upper = toUpperCase(content) in
+  data.write_file("out.txt", upper)                -- Effect NOW
+
+-- Impure, but:
+-- - Errors are explicit (Option type)
+-- - Still composable via map_option
+-- - Pragmatic and easy to understand
+```
+
+---
+
+## Why Layer Chose Option B (For Now)
+
+### Reasons for Direct Effects
+
+1. **Pragmatism:** Get productive immediately without monadic complexity
+2. **Consistency:** Matches the debug layer pattern
+3. **Learning:** Understand requirements before adding abstraction
+4. **Simplicity:** Lower barrier to entry for users
+
+### What We Still Get
+
+- ✅ **Explicit failure:** Option type makes errors visible
+- ✅ **Composability:** `map_option`, `flatmap_option`, `unwrap`
+- ✅ **Isolation:** Side effects contained in specific layers
+- ✅ **Clear boundaries:** Core layer is pure, data layer is not
+
+### Evolution Path
+
+As the language matures, we can introduce Option A (effect descriptions) alongside Option B:
+
+```layer
+@layer data {
+  # Pure API (new)
+  fn read_pure(path) = ReadEffect(path)
+
+  # Direct API (backward compatible)
+  fn read(path) = execute(read_pure(path))
+}
+
+# Users can choose their style!
+```
+
+---
+
+## Conclusion: What Monads Really Do
+
+**Monads don't eliminate side effects.** They provide a way to:
+
+1. **Describe** effects as pure values
+2. **Compose** effect descriptions without executing them
+3. **Defer** execution to the runtime/interpreter boundary
+
+This gives you purity *in your code* while accepting that the runtime still has to interact with the messy, changing world.
+
+It's a brilliant trick: **turn effects into data**, manipulate them purely, then let someone else handle the dirty work of execution.
+
+For Layer, we're taking a pragmatic middle ground - acknowledging side effects exist while making them explicit and composable through the Option pattern and layer isolation.
+
+---
+
+**End of Annex**
