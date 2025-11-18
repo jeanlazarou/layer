@@ -10,6 +10,7 @@ from layer.layers import LayerContext
 from layer.layers.core import setup_core_layer
 from layer.layers.debug import setup_debug_layer
 from layer.layers.ui import setup_ui_layer
+from layer.layers.data import setup_data_layer
 
 
 class Closure:
@@ -62,6 +63,8 @@ class Interpreter:
             setup_debug_layer(self.layer_context)
         elif layer_name == 'ui':
             setup_ui_layer(self.layer_context)
+        elif layer_name == 'data':
+            setup_data_layer(self.layer_context)
 
     def error(self, node: ASTNode, message: str):
         """Raise an interpreter error."""
