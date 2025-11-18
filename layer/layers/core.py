@@ -12,51 +12,25 @@ from typing import Any, List, Callable
 def setup_core_layer(layer_context):
     """Set up the core layer with built-in functions."""
 
-    # Helper to convert to number if it's a string
-    def to_number(val):
-        """Convert string to number if possible, otherwise return as-is."""
-        if isinstance(val, str):
-            try:
-                # Try integer first
-                if '.' not in val:
-                    return int(val)
-                # Otherwise float
-                return float(val)
-            except ValueError:
-                # If conversion fails, return the original string
-                return val
-        return val
-
-    # Arithmetic operators (with automatic string-to-number conversion)
+    # Arithmetic operators
     def add(x, y):
-        """Smart addition: concatenate strings, add numbers."""
-        # If both are strings, concatenate them
-        if isinstance(x, str) and isinstance(y, str):
-            return x + y
-        # Otherwise, convert to numbers and add
-        x, y = to_number(x), to_number(y)
         return x + y
 
     def subtract(x, y):
-        x, y = to_number(x), to_number(y)
         return x - y
 
     def multiply(x, y):
-        x, y = to_number(x), to_number(y)
         return x * y
 
     def divide(x, y):
-        x, y = to_number(x), to_number(y)
         if y == 0:
             raise ZeroDivisionError("Division by zero")
         return x / y
 
     def modulo(x, y):
-        x, y = to_number(x), to_number(y)
         return x % y
 
     def power(x, y):
-        x, y = to_number(x), to_number(y)
         return x ** y
 
     # Comparison operators
@@ -150,6 +124,19 @@ def setup_core_layer(layer_context):
         """Join list of strings."""
         return delimiter.join(str(x) for x in lst)
 
+    # Type conversion
+    def to_int(x):
+        """Convert to integer."""
+        return int(x)
+
+    def to_float(x):
+        """Convert to float."""
+        return float(x)
+
+    def to_string(x):
+        """Convert to string."""
+        return str(x)
+
     # Utility functions
     def identity(x):
         """Identity function."""
@@ -210,6 +197,11 @@ def setup_core_layer(layer_context):
         'str_length': string_length,
         'split': string_split,
         'join': string_join,
+
+        # Type conversion
+        'to_int': to_int,
+        'to_float': to_float,
+        'to_string': to_string,
 
         # Utility
         'id': identity,
