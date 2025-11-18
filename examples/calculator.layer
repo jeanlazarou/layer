@@ -4,27 +4,33 @@
 @layers [core, ui]
 
 @layer core {
-    # String concatenation helper
-    fn concat(a, b) = a + b
-
-    # Append digit to display
+    # Append digit to display (string concatenation)
     fn append_digit(display, digit) =
         match display with
+        | "" -> digit
         | "0" -> digit
-        | _ -> concat(display, digit)
+        | _ -> display + digit
 
-    # Basic arithmetic operations
-    fn add(a, b) = a + b
-    fn subtract(a, b) = a - b
-    fn multiply(a, b) = a * b
-    fn divide(a, b) =
-        match b with
-        | 0 -> "Error: Division by zero"
-        | _ -> a / b
+    # Calculator operations that work on display strings
+    # These convert the display string to number, apply operation, convert back
+    fn calc_square(display) =
+        match display with
+        | "" -> "0"
+        | _ -> to_string(to_float(display) * to_float(display))
 
-    # Advanced operations
-    fn square(n) = n * n
-    fn percent(n) = n / 100
+    fn calc_percent(display) =
+        match display with
+        | "" -> "0"
+        | _ -> to_string(to_float(display) / 100)
+
+    # Two-number arithmetic operations
+    fn calc_add(a, b) = to_string(to_float(a) + to_float(b))
+    fn calc_subtract(a, b) = to_string(to_float(a) - to_float(b))
+    fn calc_multiply(a, b) = to_string(to_float(a) * to_float(b))
+    fn calc_divide(a, b) =
+        match to_float(b) with
+        | 0.0 -> "Error"
+        | _ -> to_string(to_float(a) / to_float(b))
 
     # Calculator utilities
     fn clear() = "0"
@@ -40,50 +46,43 @@
                 # Display
                 input({name: "display", placeholder: "0", width: "280px"}),
 
-                # Calculator keypad (4 rows)
+                # Calculator keypad (digits only)
                 row([
                     button({label: "7", onclick: "append_digit(display, '7')"}),
                     button({label: "8", onclick: "append_digit(display, '8')"}),
                     button({label: "9", onclick: "append_digit(display, '9')"}),
-                    button({label: "÷", onclick: "divide(display, 1)"})
+                    button({label: "C", onclick: "clear()"})
                 ]),
                 row([
                     button({label: "4", onclick: "append_digit(display, '4')"}),
                     button({label: "5", onclick: "append_digit(display, '5')"}),
                     button({label: "6", onclick: "append_digit(display, '6')"}),
-                    button({label: "×", onclick: "multiply(display, 1)"})
+                    button({label: "x²", onclick: "calc_square(display)"})
                 ]),
                 row([
                     button({label: "1", onclick: "append_digit(display, '1')"}),
                     button({label: "2", onclick: "append_digit(display, '2')"}),
                     button({label: "3", onclick: "append_digit(display, '3')"}),
-                    button({label: "-", onclick: "subtract(display, 0)"})
+                    button({label: "%", onclick: "calc_percent(display)"})
                 ]),
                 row([
                     button({label: "0", onclick: "append_digit(display, '0')"}),
                     button({label: ".", onclick: "append_digit(display, '.')"}),
-                    button({label: "x²", onclick: "square(display)"}),
-                    button({label: "+", onclick: "add(display, 0)"})
-                ]),
-
-                # Operations row
-                row([
-                    button({label: "%", onclick: "percent(display)"}),
-                    button({label: "C", onclick: "clear()"}),
-                    button({label: "=", onclick: "display"})
+                    button({label: "00", onclick: "append_digit(display, '00')"}),
+                    button({label: "⌫", onclick: "display"})
                 ]),
 
                 # Two-number operations
                 text({content: "Two-Number Operations:"}),
                 row([
-                    input({name: "num1", placeholder: "First", width: "130px"}),
-                    input({name: "num2", placeholder: "Second", width: "130px"})
+                    input({name: "num1", placeholder: "First number", width: "130px"}),
+                    input({name: "num2", placeholder: "Second number", width: "130px"})
                 ]),
                 row([
-                    button({label: "num1 + num2", onclick: "add(num1, num2)"}),
-                    button({label: "num1 - num2", onclick: "subtract(num1, num2)"}),
-                    button({label: "num1 × num2", onclick: "multiply(num1, num2)"}),
-                    button({label: "num1 ÷ num2", onclick: "divide(num1, num2)"})
+                    button({label: "num1 + num2", onclick: "calc_add(num1, num2)"}),
+                    button({label: "num1 - num2", onclick: "calc_subtract(num1, num2)"}),
+                    button({label: "num1 × num2", onclick: "calc_multiply(num1, num2)"}),
+                    button({label: "num1 ÷ num2", onclick: "calc_divide(num1, num2)"})
                 ])
             ]
         })

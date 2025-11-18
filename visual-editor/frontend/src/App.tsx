@@ -157,22 +157,9 @@ function App() {
       })
 
       // Add input bindings as let expressions
+      // Input fields are always strings - Layer code should handle conversions
       const inputBindings = Object.entries(inputs)
-        .map(([name, value]) => {
-          // Keep 'display' and similar fields as strings to support concatenation
-          // Only convert to numbers for explicitly numeric fields (num1, num2, etc.)
-          const shouldBeString = name === 'display' || !name.match(/^num\d+$/)
-
-          if (shouldBeString) {
-            // Always treat as string
-            return `let ${name} = "${value}" in`
-          } else {
-            // Try to parse as number for num1, num2, etc.
-            const numValue = parseFloat(value)
-            const layerValue = !isNaN(numValue) ? numValue : `"${value}"`
-            return `let ${name} = ${layerValue} in`
-          }
-        })
+        .map(([name, value]) => `let ${name} = "${value}" in`)
         .join('\n')
 
       // Execute the expression with input bindings
