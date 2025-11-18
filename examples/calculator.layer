@@ -24,26 +24,30 @@
         let parts = split(" ", expr) in
         eval_parts(parts)
 
-    # Recursively evaluate list of tokens
+    # Recursively evaluate list of tokens (without using ellipsis syntax)
     fn eval_parts(parts) =
-        match parts with
-        | [] -> "0"
-        | [a] -> a
-        | [a, "+", b, ...rest] ->
-            let result = to_string(to_float(a) + to_float(b)) in
-            eval_parts([result, ...rest])
-        | [a, "-", b, ...rest] ->
-            let result = to_string(to_float(a) - to_float(b)) in
-            eval_parts([result, ...rest])
-        | [a, "*", b, ...rest] ->
-            let result = to_string(to_float(a) * to_float(b)) in
-            eval_parts([result, ...rest])
-        | [a, "/", b, ...rest] ->
-            let result = match to_float(b) with
-                | 0.0 -> "Error"
-                | _ -> to_string(to_float(a) / to_float(b)) in
-            eval_parts([result, ...rest])
-        | _ -> "Error"
+        let len = length(parts) in
+        match len with
+        | 0 -> "0"
+        | 1 -> head(parts)
+        | _ ->
+            let a = head(parts) in
+            let rest1 = tail(parts) in
+            let op = head(rest1) in
+            let rest2 = tail(rest1) in
+            let b = head(rest2) in
+            let remaining = tail(rest2) in
+            let result = match op with
+                | "+" -> to_string(to_float(a) + to_float(b))
+                | "-" -> to_string(to_float(a) - to_float(b))
+                | "*" -> to_string(to_float(a) * to_float(b))
+                | "/" ->
+                    match to_float(b) with
+                    | 0.0 -> "Error"
+                    | _ -> to_string(to_float(a) / to_float(b))
+                | _ -> "Error"
+            in
+            eval_parts(concat([result], remaining))
 
     # Calculator operations that work on display strings
     # These convert the display string to number, apply operation, convert back
