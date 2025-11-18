@@ -17,18 +17,33 @@
         | "" -> "0 " + op + " "
         | _ -> display + " " + op + " "
 
-    # Evaluate expression in display (e.g., "13 + 2" -> "15")
+    # Evaluate expression in display
+    # Handles multi-operation expressions like "14 + 2 - 7 * 3"
+    # Note: Evaluates left-to-right without operator precedence for simplicity
     fn evaluate(expr) =
         let parts = split(" ", expr) in
+        eval_parts(parts)
+
+    # Recursively evaluate list of tokens
+    fn eval_parts(parts) =
         match parts with
-        | [a, "+", b] -> to_string(to_float(a) + to_float(b))
-        | [a, "-", b] -> to_string(to_float(a) - to_float(b))
-        | [a, "*", b] -> to_string(to_float(a) * to_float(b))
-        | [a, "/", b] ->
-            match to_float(b) with
-            | 0.0 -> "Error"
-            | _ -> to_string(to_float(a) / to_float(b))
-        | _ -> expr
+        | [] -> "0"
+        | [a] -> a
+        | [a, "+", b, ...rest] ->
+            let result = to_string(to_float(a) + to_float(b)) in
+            eval_parts([result, ...rest])
+        | [a, "-", b, ...rest] ->
+            let result = to_string(to_float(a) - to_float(b)) in
+            eval_parts([result, ...rest])
+        | [a, "*", b, ...rest] ->
+            let result = to_string(to_float(a) * to_float(b)) in
+            eval_parts([result, ...rest])
+        | [a, "/", b, ...rest] ->
+            let result = match to_float(b) with
+                | 0.0 -> "Error"
+                | _ -> to_string(to_float(a) / to_float(b)) in
+            eval_parts([result, ...rest])
+        | _ -> "Error"
 
     # Calculator operations that work on display strings
     # These convert the display string to number, apply operation, convert back
