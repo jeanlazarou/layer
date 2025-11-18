@@ -226,6 +226,110 @@ The debug layer adds introspection and logging:
 }
 ```
 
+## Data Layer
+
+The data layer provides file I/O, JSON operations, and localStorage functionality using the Option pattern for error handling:
+
+### Option Pattern
+
+The data layer uses an Option type to handle errors functionally:
+
+```layer
+# Option type (Some/None)
+data.Some(value)    # Successful result
+data.None()         # Error or absence of value
+
+# Helper functions
+data.is_some(option)           # Check if Some
+data.is_none(option)           # Check if None
+data.unwrap(option, default)   # Extract value or return default
+data.map_option(fn, option)    # Map function over Option
+```
+
+### File Operations
+
+```layer
+@layer data {
+  # Read a file (returns Some(content) or None)
+  data.read_file(path)
+
+  # Write to a file (returns Some(content) or None)
+  data.write_file(path, content)
+
+  # Check if file exists (returns boolean)
+  data.exists(path)
+
+  # Delete a file (returns Some(path) or None)
+  data.delete(path)
+
+  # List files in directory (returns Some([files]) or None)
+  data.list_files(directory)
+}
+```
+
+### JSON Operations
+
+```layer
+@layer data {
+  # Read and parse JSON file
+  data.read_json(path)           # Returns Some(data) or None
+
+  # Write data to JSON file
+  data.write_json(path, data)    # Returns Some(data) or None
+
+  # Parse JSON string
+  data.parse_json(json_string)   # Returns Some(data) or None
+
+  # Convert to JSON string
+  data.to_json(data)             # Returns Some(string) or None
+}
+```
+
+### localStorage Operations
+
+```layer
+@layer data {
+  # Get value from localStorage
+  data.get(key)           # Returns Some(value) or None
+
+  # Set value in localStorage
+  data.set(key, value)    # Returns Some(value)
+
+  # Delete key from localStorage
+  data.delete_key(key)    # Returns Some(key) or None
+
+  # Get all keys
+  data.keys()             # Returns [keys]
+
+  # Clear all storage
+  data.clear()            # Returns None
+}
+```
+
+### Example Usage
+
+```layer
+@layers [core, data, debug]
+
+# File I/O with error handling
+let file_content = data.read_file("input.txt") in
+let result = data.unwrap(file_content, "File not found") in
+debug.log(result)
+
+# JSON processing
+let users = data.read_json("users.json") in
+let processed = data.map_option(
+  fn(user_list) -> filter(fn(u) -> u.age >= 18, user_list),
+  users
+) in
+data.write_json("adults.json", data.unwrap(processed, []))
+
+# localStorage
+let _ = data.set("username", "alice") in
+let username = data.get("username") in
+debug.log(data.unwrap(username, "No user"))
+```
+
 ## Execution Model
 
 1. Parse Layer source file

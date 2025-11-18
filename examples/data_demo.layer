@@ -1,0 +1,82 @@
+# Data Layer Demo
+# Demonstrates file I/O, JSON operations, localStorage, and Option pattern
+
+@layers [core, data, debug]
+
+@layer core {
+  # Safe division function returning Option
+  fn safe_divide(a, b) =
+    match b with
+    | 0 -> data.None()
+    | _ -> data.Some(a / b)
+}
+
+# ========== File I/O Demo ==========
+
+let _ = debug.log("=== File I/O Demo ===") in
+let _ = data.write_file("test_output.txt", "Hello from Layer!") in
+let file_content = data.read_file("test_output.txt") in
+let _ = debug.log(data.unwrap(file_content, "Failed to read file")) in
+
+# ========== JSON Operations Demo ==========
+
+let _ = debug.log("\n=== JSON Demo ===") in
+let users = [
+  {name: "Alice", age: 30, role: "developer"},
+  {name: "Bob", age: 25, role: "designer"},
+  {name: "Charlie", age: 35, role: "manager"}
+] in
+let _ = data.write_json("users.json", users) in
+let read_users = data.read_json("users.json") in
+let _ = debug.log(data.unwrap(read_users, [])) in
+
+# ========== localStorage Demo ==========
+
+let _ = debug.log("\n=== localStorage Demo ===") in
+let _ = data.set("username", "alice") in
+let _ = data.set("score", 100) in
+let _ = data.set("level", 5) in
+let username_result = data.get("username") in
+let _ = debug.log(data.unwrap(username_result, "No username found")) in
+let _ = debug.log("All keys:") in
+let _ = debug.log(data.keys()) in
+
+# ========== Option Pattern Demo ==========
+
+let _ = debug.log("\n=== Option Pattern Demo ===") in
+let good_result = safe_divide(10, 2) in
+let _ = debug.log("10 / 2 =") in
+let _ = debug.log(data.unwrap(good_result, "Error")) in
+let bad_result = safe_divide(10, 0) in
+let _ = debug.log("10 / 0 =") in
+let _ = debug.log(data.unwrap(bad_result, "Division by zero!")) in
+
+# ========== Option Chaining Demo ==========
+
+let _ = debug.log("\n=== Option Chaining Demo ===") in
+let file_again = data.read_file("test_output.txt") in
+let _ = debug.log(data.unwrap(file_again, "Failed to read")) in
+
+# ========== File Existence Check ==========
+
+let _ = debug.log("\n=== File Exists Demo ===") in
+let _ = debug.log("test_output.txt exists:") in
+let _ = debug.log(data.exists("test_output.txt")) in
+let _ = debug.log("nonexistent.txt exists:") in
+let _ = debug.log(data.exists("nonexistent.txt")) in
+
+# ========== is_some/is_none Demo ==========
+
+let _ = debug.log("\n=== is_some/is_none Demo ===") in
+let some_val = data.Some(42) in
+let _ = debug.log("is_some(Some(42)):") in
+let _ = debug.log(data.is_some(some_val)) in
+let _ = debug.log("is_none(Some(42)):") in
+let _ = debug.log(data.is_none(some_val)) in
+let none_val = data.None() in
+let _ = debug.log("is_some(None()):") in
+let _ = debug.log(data.is_some(none_val)) in
+let _ = debug.log("is_none(None()):") in
+let _ = debug.log(data.is_none(none_val)) in
+
+"Data layer demo completed!"
