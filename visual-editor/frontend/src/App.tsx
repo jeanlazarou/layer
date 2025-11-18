@@ -159,10 +159,19 @@ function App() {
       // Add input bindings as let expressions
       const inputBindings = Object.entries(inputs)
         .map(([name, value]) => {
-          // Try to parse as number, otherwise treat as string
-          const numValue = parseFloat(value)
-          const layerValue = !isNaN(numValue) ? numValue : `"${value}"`
-          return `let ${name} = ${layerValue} in`
+          // Keep 'display' and similar fields as strings to support concatenation
+          // Only convert to numbers for explicitly numeric fields (num1, num2, etc.)
+          const shouldBeString = name === 'display' || !name.match(/^num\d+$/)
+
+          if (shouldBeString) {
+            // Always treat as string
+            return `let ${name} = "${value}" in`
+          } else {
+            // Try to parse as number for num1, num2, etc.
+            const numValue = parseFloat(value)
+            const layerValue = !isNaN(numValue) ? numValue : `"${value}"`
+            return `let ${name} = ${layerValue} in`
+          }
         })
         .join('\n')
 
