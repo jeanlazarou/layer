@@ -1,5 +1,5 @@
-import axios from 'axios'
 import type { ExecuteResponse } from '../types'
+import layerWasm from '../wasm/layerWasm'
 
 export interface ParseResponse {
   success: boolean
@@ -9,36 +9,45 @@ export interface ParseResponse {
   error?: string
 }
 
+/**
+ * Execute Layer code using WebAssembly
+ */
 export const executeLayerCode = async (code: string): Promise<ExecuteResponse> => {
   try {
-    const response = await axios.post<ExecuteResponse>('/api/execute', {
-      code: code
-    })
-    return response.data
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response) {
-      return {
-        success: false,
-        error: error.response.data.error || 'Server error'
-      }
+    const result = await layerWasm.execute(code)
+
+    return {
+      success: result.success,
+      result: result.result,
+      logs: result.logs || [],
+      error: result.error
     }
-    throw new Error('Failed to connect to backend server')
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
   }
 }
 
+/**
+ * Parse a Layer file using WebAssembly
+ */
 export const parseLayerFile = async (content: string): Promise<ParseResponse> => {
   try {
-    const response = await axios.post<ParseResponse>('/api/parse', {
-      content: content
-    })
-    return response.data
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response) {
-      return {
-        success: false,
-        error: error.response.data.error || 'Server error'
-      }
+    const result = await layerWasm.parseFile(content)
+
+    return {
+      success: result.success,
+      enabledLayers: result.enabledLayers,
+      layers: result.layers,
+      mainExpression: result.mainExpression,
+      error: result.error
     }
-    throw new Error('Failed to connect to backend server')
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
   }
 }

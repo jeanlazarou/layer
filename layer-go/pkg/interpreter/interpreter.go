@@ -1,0 +1,546 @@
+package interpreter
+
+import (
+	"fmt"
+	"math"
+	"os"
+	"time"
+
+	"github.com/yourusername/layer/pkg/ast"
+	"github.com/yourusername/layer/pkg/layers"
+)
+
+// Closure represents a function closure
+type Closure struct {
+	Params      []string
+	Body        ast.Node
+	Env         map[string]interface{}
+	Interpreter *Interpreter
+}
+
+// Call invokes the closure with arguments
+func (c *Closure) Call(args ...interface{}) (interface{}, error) {
+	if len(args) != len(c.Params) {
+		return nil, fmt.Errorf("expected %d arguments, got %d", len(c.Params), len(args))
+	}
+
+	// Special handling for const function
+	if c.Body == nil && c.Env["__const_value"] != nil {
+		return c.Env["__const_value"], nil
+	}
+
+	// Special handling for compose function
+	if c.Body == nil && c.Env["__compose_f"] != nil && c.Env["__compose_g"] != nil {
+		f := c.Env["__compose_f"].(*Closure)
+		g := c.Env["__compose_g"].(*Closure)
+
+		// Call g(x)
+		gResult, err := g.Call(args[0])
+		if err != nil {
+			return nil, err
+		}
+
+		// Call f(g(x))
+		return f.Call(gResult)
+	}
+
+	// Special handling for trace function
+	if c.Body == nil && c.Env["__trace_name"] != nil && c.Env["__trace_fn"] != nil {
+		name := fmt.Sprintf("%v", c.Env["__trace_name"])
+		fn := c.Env["__trace_fn"].(*Closure)
+
+		// Log function call
+		argsStr := ""
+		for i, arg := range args {
+			if i > 0 {
+				argsStr += ", "
+			}
+			argsStr += fmt.Sprintf("%v", arg)
+		}
+		fmt.Fprintf(os.Stderr, "[TRACE] %s(%s) called\n", name, argsStr)
+
+		// Call the wrapped function
+		result, err := fn.Call(args...)
+		if err != nil {
+			return nil, err
+		}
+
+		// Log function result
+		fmt.Fprintf(os.Stderr, "[TRACE] %s(%s) = %v\n", name, argsStr, result)
+
+		return result, nil
+	}
+
+	// Special handling for benchmark function
+	if c.Body == nil && c.Env["__benchmark_name"] != nil && c.Env["__benchmark_fn"] != nil {
+		name := fmt.Sprintf("%v", c.Env["__benchmark_name"])
+		fn := c.Env["__benchmark_fn"].(*Closure)
+
+		// Benchmark the function
+		start := time.Now()
+		result, err := fn.Call(args...)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			return nil, err
+		}
+
+		// Log benchmark result
+		fmt.Fprintf(os.Stderr, "[BENCH] %s took %.3fms\n", name, float64(elapsed.Microseconds())/1000.0)
+
+		return result, nil
+	}
+
+	// Create new environment with parameters bound
+	newEnv := make(map[string]interface{})
+	for k, v := range c.Env {
+		newEnv[k] = v
+	}
+
+	for i, param := range c.Params {
+		newEnv[param] = args[i]
+	}
+
+	// Evaluate body in new environment
+	return c.Interpreter.Eval(c.Body, newEnv)
+}
+
+// String returns a string representation
+func (c *Closure) String() string {
+	return fmt.Sprintf("<function(%s)>", stringJoin(c.Params, ", "))
+}
+
+// Interpreter interprets Layer programs
+type Interpreter struct {
+	layerContext *layers.LayerContext
+	localEnv     map[string]interface{} // Local variable environment
+}
+
+// NewInterpreter creates a new interpreter
+func NewInterpreter() *Interpreter {
+	interp := &Interpreter{
+		layerContext: layers.NewLayerContext(),
+		localEnv:     make(map[string]interface{}),
+	}
+
+	// Set up core layer
+	interp.layerContext.AddLayer("core")
+	SetupCoreLayer(interp.layerContext)
+
+	return interp
+}
+
+// EnableLayer enables a layer
+func (i *Interpreter) EnableLayer(layerName string) error {
+	i.layerContext.AddLayer(layerName)
+
+	// Set up built-in layer implementations
+	switch layerName {
+	case "debug":
+		SetupDebugLayer(i.layerContext)
+	case "ui":
+		SetupUILayer(i.layerContext)
+	case "data":
+		SetupDataLayer(i.layerContext)
+	}
+
+	return nil
+}
+
+// error raises an interpreter error
+func (i *Interpreter) error(node ast.Node, message string) error {
+	pos := node.Pos()
+	return fmt.Errorf("runtime error at %d:%d: %s", pos.Line, pos.Column, message)
+}
+
+// Eval evaluates an AST node
+func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface{}, error) {
+	if env == nil {
+		env = i.localEnv
+	}
+
+	// Literals
+	switch n := node.(type) {
+	case *ast.NumberLiteral:
+		return n.Value, nil
+
+	case *ast.StringLiteral:
+		return n.Value, nil
+
+	case *ast.BooleanLiteral:
+		return n.Value, nil
+
+	case *ast.ListLiteral:
+		elements := make([]interface{}, len(n.Elements))
+		for idx, elem := range n.Elements {
+			val, err := i.Eval(elem, env)
+			if err != nil {
+				return nil, err
+			}
+			elements[idx] = val
+		}
+		return elements, nil
+
+	case *ast.TupleLiteral:
+		elements := make([]interface{}, len(n.Elements))
+		for idx, elem := range n.Elements {
+			val, err := i.Eval(elem, env)
+			if err != nil {
+				return nil, err
+			}
+			elements[idx] = val
+		}
+		return elements, nil
+
+	case *ast.RecordLiteral:
+		record := make(map[string]interface{})
+		for key, valueNode := range n.Fields {
+			val, err := i.Eval(valueNode, env)
+			if err != nil {
+				return nil, err
+			}
+			record[key] = val
+		}
+		return record, nil
+
+	// Identifiers
+	case *ast.Identifier:
+		// Look up in local environment first
+		if val, found := env[n.Name]; found {
+			return val, nil
+		}
+
+		// Then in layer context
+		val, err := i.layerContext.Lookup(n.Name)
+		if err != nil {
+			return nil, i.error(node, fmt.Sprintf("undefined variable: %s", n.Name))
+		}
+		return val, nil
+
+	// Member access (layer.function)
+	case *ast.MemberAccess:
+		// For now, assume object is a layer name
+		if ident, ok := n.Object.(*ast.Identifier); ok {
+			layerName := ident.Name
+			val, err := i.layerContext.GetLayerValue(layerName, n.Member)
+			if err != nil {
+				return nil, i.error(node, err.Error())
+			}
+			return val, nil
+		}
+		return nil, i.error(node, "member access only supported on layer names currently")
+
+	// Functions
+	case *ast.Lambda:
+		envCopy := make(map[string]interface{})
+		for k, v := range env {
+			envCopy[k] = v
+		}
+		return &Closure{
+			Params:      n.Params,
+			Body:        n.Body,
+			Env:         envCopy,
+			Interpreter: i,
+		}, nil
+
+	case *ast.FunctionDef:
+		envCopy := make(map[string]interface{})
+		for k, v := range env {
+			envCopy[k] = v
+		}
+		closure := &Closure{
+			Params:      n.Params,
+			Body:        n.Body,
+			Env:         envCopy,
+			Interpreter: i,
+		}
+		// Store in current layer
+		i.layerContext.Define(n.Name, closure)
+		return closure, nil
+
+	case *ast.FunctionCall:
+		funcVal, err := i.Eval(n.Function, env)
+		if err != nil {
+			return nil, err
+		}
+
+		args := make([]interface{}, len(n.Arguments))
+		for idx, argNode := range n.Arguments {
+			val, err := i.Eval(argNode, env)
+			if err != nil {
+				return nil, err
+			}
+			args[idx] = val
+		}
+
+		// Handle closures
+		if closure, ok := funcVal.(*Closure); ok {
+			return closure.Call(args...)
+		}
+
+		// Handle built-in functions (Go functions)
+		if fn, ok := funcVal.(func(...interface{}) (interface{}, error)); ok {
+			return fn(args...)
+		}
+
+		return nil, i.error(node, fmt.Sprintf("not a function: %v", funcVal))
+
+	// Binary operations
+	case *ast.BinaryOp:
+		left, err := i.Eval(n.Left, env)
+		if err != nil {
+			return nil, err
+		}
+
+		right, err := i.Eval(n.Right, env)
+		if err != nil {
+			return nil, err
+		}
+
+		// Look up operator function
+		opFunc, err := i.layerContext.Lookup(n.Operator)
+		if err != nil {
+			return nil, i.error(node, fmt.Sprintf("unknown operator: %s", n.Operator))
+		}
+
+		if fn, ok := opFunc.(func(...interface{}) (interface{}, error)); ok {
+			return fn(left, right)
+		}
+
+		return nil, i.error(node, fmt.Sprintf("operator %s is not callable", n.Operator))
+
+	// Unary operations
+	case *ast.UnaryOp:
+		operand, err := i.Eval(n.Operand, env)
+		if err != nil {
+			return nil, err
+		}
+
+		if n.Operator == "-" {
+			return negateNumber(operand)
+		} else if n.Operator == "not" {
+			opFunc, err := i.layerContext.Lookup("not")
+			if err != nil {
+				return nil, i.error(node, "not operator not found")
+			}
+			if fn, ok := opFunc.(func(...interface{}) (interface{}, error)); ok {
+				return fn(operand)
+			}
+		}
+
+		return nil, i.error(node, fmt.Sprintf("unknown unary operator: %s", n.Operator))
+
+	// Let binding
+	case *ast.LetBinding:
+		value, err := i.Eval(n.Value, env)
+		if err != nil {
+			return nil, err
+		}
+
+		newEnv := make(map[string]interface{})
+		for k, v := range env {
+			newEnv[k] = v
+		}
+		newEnv[n.Name] = value
+
+		return i.Eval(n.Body, newEnv)
+
+	// Pattern matching
+	case *ast.Match:
+		value, err := i.Eval(n.Value, env)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, matchCase := range n.Cases {
+			bindings := i.matchPattern(matchCase.Pattern, value, env)
+			if bindings != nil {
+				// Pattern matched, evaluate body with bindings
+				newEnv := make(map[string]interface{})
+				for k, v := range env {
+					newEnv[k] = v
+				}
+				for k, v := range bindings {
+					newEnv[k] = v
+				}
+				return i.Eval(matchCase.Body, newEnv)
+			}
+		}
+
+		return nil, i.error(node, fmt.Sprintf("no pattern matched for value: %v", value))
+
+	// Block
+	case *ast.Block:
+		var result interface{}
+		for _, stmt := range n.Statements {
+			val, err := i.Eval(stmt, env)
+			if err != nil {
+				return nil, err
+			}
+			result = val
+		}
+		return result, nil
+	}
+
+	return nil, i.error(node, fmt.Sprintf("unknown node type: %T", node))
+}
+
+// matchPattern matches a pattern against a value
+// Returns a map of bindings if match succeeds, nil otherwise
+func (i *Interpreter) matchPattern(pattern ast.Node, value interface{}, env map[string]interface{}) map[string]interface{} {
+	switch p := pattern.(type) {
+	case *ast.NumberPattern:
+		if numEqual(p.Value, value) {
+			return make(map[string]interface{})
+		}
+		return nil
+
+	case *ast.StringPattern:
+		if str, ok := value.(string); ok && p.Value == str {
+			return make(map[string]interface{})
+		}
+		return nil
+
+	case *ast.BooleanPattern:
+		if b, ok := value.(bool); ok && p.Value == b {
+			return make(map[string]interface{})
+		}
+		return nil
+
+	case *ast.IdentifierPattern:
+		if p.Name == "_" {
+			return make(map[string]interface{}) // Wildcard, always matches
+		}
+		return map[string]interface{}{p.Name: value}
+
+	case *ast.ListPattern:
+		list, ok := value.([]interface{})
+		if !ok {
+			return nil
+		}
+
+		bindings := make(map[string]interface{})
+
+		if p.Rest != "" {
+			// Pattern like [a, b, ...rest]
+			if len(list) < len(p.Elements) {
+				return nil
+			}
+
+			// Match fixed elements
+			for idx, elemPattern := range p.Elements {
+				elemBindings := i.matchPattern(elemPattern, list[idx], env)
+				if elemBindings == nil {
+					return nil
+				}
+				for k, v := range elemBindings {
+					bindings[k] = v
+				}
+			}
+
+			// Bind rest
+			restValue := list[len(p.Elements):]
+			bindings[p.Rest] = restValue
+
+		} else {
+			// Exact length match
+			if len(list) != len(p.Elements) {
+				return nil
+			}
+
+			for idx, elemPattern := range p.Elements {
+				elemBindings := i.matchPattern(elemPattern, list[idx], env)
+				if elemBindings == nil {
+					return nil
+				}
+				for k, v := range elemBindings {
+					bindings[k] = v
+				}
+			}
+		}
+
+		return bindings
+	}
+
+	return nil
+}
+
+// Execute executes a complete Layer program
+func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
+	// Enable layers
+	if program.LayersDirective != nil {
+		for _, layerName := range program.LayersDirective.LayerNames {
+			if err := i.EnableLayer(layerName); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Evaluate layer declarations
+	for _, layerDecl := range program.LayerDeclarations {
+		i.layerContext.SetCurrentLayer(layerDecl.LayerName)
+
+		for _, definition := range layerDecl.Definitions {
+			if _, err := i.Eval(definition, i.localEnv); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Evaluate main expression
+	if program.MainExpression != nil {
+		return i.Eval(program.MainExpression, i.localEnv)
+	}
+
+	return nil, nil
+}
+
+// Helper functions
+
+func stringJoin(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += sep + strs[i]
+	}
+	return result
+}
+
+func negateNumber(val interface{}) (interface{}, error) {
+	switch v := val.(type) {
+	case int64:
+		return -v, nil
+	case float64:
+		return -v, nil
+	case int:
+		return -int64(v), nil
+	default:
+		return nil, fmt.Errorf("cannot negate non-number: %T", val)
+	}
+}
+
+func numEqual(a, b interface{}) bool {
+	aFloat := toFloat64(a)
+	bFloat := toFloat64(b)
+	if aFloat == nil || bFloat == nil {
+		return false
+	}
+	return math.Abs(*aFloat-*bFloat) < 1e-9
+}
+
+func toFloat64(val interface{}) *float64 {
+	switch v := val.(type) {
+	case int64:
+		f := float64(v)
+		return &f
+	case float64:
+		return &v
+	case int:
+		f := float64(v)
+		return &f
+	default:
+		return nil
+	}
+}

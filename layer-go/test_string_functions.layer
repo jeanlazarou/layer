@@ -1,0 +1,26 @@
+@layers [core]
+
+@layer core {
+    # Test string concatenation with +
+    fn test_string_concat() =
+        "Hello" + " " + "World"
+
+    # Test to_string
+    fn test_to_string() =
+        to_string(42) + " is the answer"
+
+    # Test to_float
+    fn test_to_float() =
+        to_float("3.14") + 1.0
+
+    # Test split
+    fn test_split() =
+        split(" ", "7 8 9")
+}
+
+# Run tests
+let concat_result = test_string_concat() in
+let to_string_result = test_to_string() in
+let to_float_result = test_to_float() in
+let split_result = test_split() in
+[concat_result, to_string_result, to_float_result, split_result]
