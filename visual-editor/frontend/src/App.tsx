@@ -169,9 +169,15 @@ function App() {
       })
 
       // Add input bindings as let expressions
-      // Input fields are always strings - Layer code should handle conversions
+      // Numbers are passed as-is, strings are quoted
       const inputBindings = Object.entries(inputs)
-        .map(([name, value]) => `let ${name} = "${value}" in`)
+        .map(([name, value]) => {
+          if (typeof value === 'number') {
+            return `let ${name} = ${value} in`
+          } else {
+            return `let ${name} = "${value}" in`
+          }
+        })
         .join('\n')
 
       // Execute the expression with input bindings

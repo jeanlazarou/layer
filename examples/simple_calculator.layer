@@ -14,19 +14,14 @@
 }
 
 @layer ui {
-    fn add(a, b) = core.add(to_float(a), to_float(b))
-    fn subtract(a, b) = core.subtract(to_float(a), to_float(b))
-    fn multiply(a, b) = core.multiply(to_float(a), to_float(b))
-    fn divide(a, b) = core.divide(to_float(a), to_float(b))
-
     fn calculator() =
         view({
             title: "Simple Calculator",
             children: [
                 text({content: "Enter two numbers and click an operation:"}),
                 row([
-                    input({name: "num1", placeholder: "First number"}),
-                    input({name: "num2", placeholder: "Second number"})
+                    input({name: "num1", placeholder: "First number", type: "number"}),
+                    input({name: "num2", placeholder: "Second number", type: "number"})
                 ]),
                 row([
                     button({label: "Add", onclick: "add(num1, num2)"}),

@@ -3,7 +3,7 @@ import { Box, Typography, Button, TextField } from '@mui/material'
 
 interface UIPreviewProps {
   xmlContent: string
-  onExecute?: (expression: string, inputs: Record<string, string>) => Promise<string>
+  onExecute?: (expression: string, inputs: Record<string, string | number>) => Promise<string>
 }
 
 interface UIComponent {
@@ -27,8 +27,28 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
     }
 
     try {
-      // Execute the onclick expression with current input values
-      const result = await onExecute(onclick, inputs)
+      // Extract input types to convert values appropriately
+      const component = parseXML(xmlContent)
+      const inputInfo = extractInputInfo(component)
+
+      // Convert input values based on their types
+      const convertedInputs: Record<string, string | number> = {}
+      Object.keys(inputs).forEach(name => {
+        const value = inputs[name]
+        const type = inputInfo[name] || 'text'
+
+        if (type === 'number' && value !== '') {
+          // Convert to number (float)
+          const num = parseFloat(value)
+          convertedInputs[name] = isNaN(num) ? value : num
+        } else {
+          // Keep as string for other types
+          convertedInputs[name] = value
+        }
+      })
+
+      // Execute the onclick expression with converted input values
+      const result = await onExecute(onclick, convertedInputs)
 
       // Store result for display in the result box
       setResults(prev => ({ ...prev, [onclick]: result }))
@@ -96,17 +116,18 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
     return parseNode(doc.documentElement)
   }
 
-  // Helper function to extract all input field names from a component tree
-  const extractInputNames = (component: UIComponent | null): string[] => {
-    if (!component) return []
+  // Helper function to extract all input field names and types from a component tree
+  const extractInputInfo = (component: UIComponent | null): Record<string, string> => {
+    if (!component) return {}
 
-    const names: string[] = []
+    const inputInfo: Record<string, string> = {}
 
     const traverse = (comp: UIComponent | string) => {
       if (typeof comp === 'string') return
 
       if (comp.type === 'input' && comp.props.name) {
-        names.push(comp.props.name)
+        // Store the type for each input (default to 'text')
+        inputInfo[comp.props.name] = comp.props.type || 'text'
       }
 
       if (comp.children) {
@@ -115,18 +136,18 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
     }
 
     traverse(component)
-    return names
+    return inputInfo
   }
 
   // Initialize input fields when component is first loaded or changes
   useEffect(() => {
     const component = parseXML(xmlContent)
-    const inputNames = extractInputNames(component)
+    const inputInfo = extractInputInfo(component)
 
     // Initialize all input fields with empty string if not already present
     setInputs(prev => {
       const newInputs = { ...prev }
-      inputNames.forEach(name => {
+      Object.keys(inputInfo).forEach((name: string) => {
         if (!(name in newInputs)) {
           newInputs[name] = ''
         }
@@ -195,10 +216,12 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
       case 'input':
         const inputName = props.name || `input_${key}`
         const inputValue = inputs[inputName] || props.value || ''
+        const inputType = props.type || 'text' // Support type attribute (text, number, email, etc.)
         return (
           <TextField
             key={key}
             size="small"
+            type={inputType}
             placeholder={props.placeholder}
             value={inputValue}
             onChange={(e) => handleInputChange(inputName, e.target.value)}
