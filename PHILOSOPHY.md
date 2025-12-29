@@ -158,22 +158,22 @@ Instead of trying to eliminate effects or hide them in monads, Layer uses **laye
 ### The Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         Pure Core                   │
-│                                     │
-│  ┌──────────────────────────┐      │
-│  │  Business Logic          │      │
-│  │  (all pure functions)    │      │
-│  │  - Calculations          │      │
-│  │  - Transformations       │      │
-│  │  - Validation            │      │
-│  └──────────────────────────┘      │
-│              ▲                      │
-│              │                      │
-└──────────────┼──────────────────────┘
+┌────────────────────────────────┐
+│         Pure Core              │
+│                                │
+│  ┌──────────────────────────┐  │
+│  │  Business Logic          │  │
+│  │  (all pure functions)    │  │
+│  │  - Calculations          │  │
+│  │  - Transformations       │  │
+│  │  - Validation            │  │
+│  └──────────────────────────┘  │
+│              ▲                 │
+│              │                 │
+└──────────────┼─────────────────┘
                │
-        ┌──────┴───────┐
-        │              │
+        ┌──────┴──────┐
+        │             │
    ┌────▼────┐   ┌────▼────┐
    │  Input  │   │ Output  │
    │ (Files, │   │ (Files, │
@@ -343,7 +343,7 @@ A layer is like Photoshop's layers for code - you can stack different aspects of
     fn calculator() = view({
         title: "Factorial Calculator",
         children: [
-            input({name: "n", placeholder: "Enter number"}),
+            input({name: "n", placeholder: "Enter number", type: "number"}),
             button({label: "Calculate", onclick: "factorial(n)"})
         ]
     })
@@ -658,6 +658,7 @@ processFile path = do
 ```
 
 **Pros**: Type system guarantees purity
+
 **Cons**: Steep learning curve, monads are complex
 
 ### Elm: Managed Effects
@@ -674,6 +675,7 @@ update msg model =
 ```
 
 **Pros**: Simple model, impossible states impossible
+
 **Cons**: Limited to UI, can't express arbitrary effects
 
 ### Layer: Spatial Layers
@@ -689,6 +691,7 @@ update msg model =
 ```
 
 **Pros**: Visual separation, flexible, learnable
+
 **Cons**: Less compile-time guarantees than Haskell
 
 ---

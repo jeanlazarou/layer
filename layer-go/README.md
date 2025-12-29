@@ -276,7 +276,6 @@ The Layer language was originally implemented in Python. The Go implementation i
 ✅ **All examples working**
 ✅ **WASM compilation successful**
 ✅ **Browser integration complete**
-❌ **Python version deprecated** - No longer maintained
 
 ---
 

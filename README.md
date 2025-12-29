@@ -49,7 +49,7 @@ See [PHILOSOPHY.md](PHILOSOPHY.md) for the complete rationale.
   fn app() = view({
     title: "Fibonacci Calculator",
     children: [
-      input({name: "n", placeholder: "Enter number"}),
+      input({name: "n", placeholder: "Enter number", type: "number"}),
       button({label: "Calculate", onclick: "fibonacci(n)"})
     ]
   })

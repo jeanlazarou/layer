@@ -6,8 +6,15 @@ Welcome to Layer! This tutorial will guide you through the basics of programming
 
 ```bash
 git clone https://github.com/yourusername/layer.git
-cd layer
-pip install -r requirements.txt
+cd layer/layer-go
+go build -o layer ./cmd/layer
+```
+
+Or use the visual editor (no installation needed - runs in browser):
+```bash
+cd layer/visual-editor/frontend
+npm install
+npm run dev
 ```
 
 ## Your First Layer Program
@@ -28,10 +35,13 @@ greet("World")
 Run it:
 
 ```bash
-python -m layer.cli run hello.layer
+cd layer-go
+./layer run hello.layer
 ```
 
 Output: `Hello, World!`
+
+**Or use the visual editor**: Open http://localhost:5173, paste the code, and click ▶️
 
 ## Basic Concepts
 
@@ -305,7 +315,8 @@ let add_two = twice(add_one) in
 Launch the REPL:
 
 ```bash
-python -m layer.repl
+cd layer-go
+./layer
 ```
 
 Try these commands:

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Layer is an experimental purely functional programming language built around **layer-based composition**. Like Photoshop's layer system for images, Layer allows programmers to stack different aspects of their programs (UI, debugging, async operations, data persistence) on top of a core functional foundation.
 
 The project consists of:
-- **Python-based interpreter**: Tree-walk interpreter with lexer, parser, and evaluator
+- **Go-based interpreter**: Tree-walk interpreter with lexer, parser, and evaluator compiled to WebAssembly
 - **Visual Editor**: React + Material UI interface with Monaco editor and **live interactive UI rendering**
 - **Layer system**: Composable layers (core, ui, debug, data) that can override/wrap each other
 
@@ -15,41 +15,38 @@ The project consists of:
 
 ## Development Commands
 
-### Python Interpreter (Core Language)
+### Go Interpreter (Core Language)
 
 ```bash
-# Activate virtual environment (ALWAYS do this first)
-source venv/bin/activate
+# Build the interpreter
+cd layer-go
+go build -o layer ./cmd/layer
 
 # Run the REPL
-python -m layer.repl
+./layer
 
 # Execute a .layer file
-python -m layer.cli run examples/fibonacci.layer
+./layer run ../examples/fibonacci.layer
 
 # Run tests
-pytest                          # All tests
-pytest tests/test_lexer.py     # Specific test file
-pytest -v                       # Verbose output
-pytest --cov=layer             # With coverage report
+go test ./...                   # All tests
+go test ./pkg/interpreter       # Specific package
+go test -v ./...                # Verbose output
+go test -cover ./...            # With coverage report
 
-# Run a single test
-pytest tests/test_lexer.py::test_function_name -v
+# Build WebAssembly module
+cd layer-go
+./build-wasm.sh                 # Outputs layer.wasm
 ```
 
-### Visual Editor (Frontend + Backend)
+### Visual Editor (Frontend Only - No Backend Needed!)
 
-The visual editor requires running both backend (Flask) and frontend (Vite) servers:
+The visual editor runs entirely in the browser using WebAssembly:
 
 ```bash
-# Backend (Terminal 1)
-cd visual-editor/backend
-source ../../venv/bin/activate
-python app.py                   # Runs on http://localhost:5000
-
-# Frontend (Terminal 2)
+# Frontend (standalone - WASM interpreter embedded)
 cd visual-editor/frontend
-npm run dev                     # Runs on http://localhost:5000 (Vite dev server)
+npm run dev                     # Runs on http://localhost:5173 (Vite dev server)
 npm run build                   # Production build
 npm run preview                 # Preview production build
 npm run lint                    # Lint code
@@ -57,30 +54,30 @@ npm run lint                    # Lint code
 
 ## Architecture
 
-### Language Implementation (Python)
+### Language Implementation (Go)
 
 The interpreter follows a traditional pipeline with layer-aware extensions:
 
 ```
 Source Code (.layer file)
     ↓
-Lexer (layer/lexer.py) → Tokens
+Lexer (layer-go/pkg/lexer) → Tokens
     ↓
-Parser (layer/parser.py) → AST (layer/ast_nodes.py)
+Parser (layer-go/pkg/parser) → AST (layer-go/pkg/ast)
     ↓
-Interpreter (layer/interpreter.py) + Layer System (layer/layers/)
+Interpreter (layer-go/pkg/interpreter) + Layer System (layer-go/pkg/layers)
     ↓
 Result
 ```
 
 **Key Components:**
 
-- **`layer/lexer.py`**: Tokenization with support for λ symbol, multi-character operators (→, ==, etc.)
-- **`layer/parser.py`**: Recursive descent parser with precedence climbing for operators
-- **`layer/ast_nodes.py`**: AST node definitions using Python dataclasses
-- **`layer/interpreter.py`**: Evaluates AST with closures, pattern matching, and layer-aware lookups
-- **`layer/layers/`**: Layer implementations (core, ui, debug, data)
-  - **`__init__.py`**: LayerContext manages layer stack and function resolution
+- **`layer-go/pkg/lexer`**: Tokenization with support for λ symbol, multi-character operators (→, ==, etc.)
+- **`layer-go/pkg/parser`**: Recursive descent parser with precedence climbing for operators
+- **`layer-go/pkg/ast`**: AST node definitions using Go structs
+- **`layer-go/pkg/interpreter`**: Evaluates AST with closures, pattern matching, and layer-aware lookups
+- **`layer-go/pkg/layers`**: Layer implementations (core, ui, debug, data)
+  - **`layer_context.go`**: LayerContext manages layer stack and function resolution
   - Layer resolution: searches from top to bottom, first match wins
   - Supports explicit layer access (e.g., `core.factorial`)
 
@@ -104,24 +101,24 @@ Layers stack from bottom to top. Higher layers can override or wrap lower layer 
 
 ```
 visual-editor/
-├── backend/
-│   └── app.py              # Flask REST API (thin wrapper around interpreter)
 └── frontend/
     └── src/
-        ├── App.tsx         # Main React application with interactive execution
+        ├── App.tsx         # Main React application with WASM interpreter
         ├── components/
         │   ├── LayerStack.tsx    # Layer panel (left sidebar)
         │   ├── CodeEditor.tsx    # Monaco editor integration
         │   ├── OutputConsole.tsx # Terminal-style output with UI preview
         │   └── UIPreview.tsx     # Renders Layer UI components as live React UI
-        └── api/
-            └── layerApi.ts       # Axios client for backend
+        └── wasm/
+            ├── layer.wasm        # Go interpreter compiled to WebAssembly
+            ├── wasm_exec.js      # Go WASM runtime
+            └── browserFileSystem.ts  # Browser storage for file I/O
 ```
 
 **Tech Stack:**
 - Frontend: React 18, Vite, TypeScript, Material UI 5, Monaco Editor
-- Backend: Flask 3.0, flask-cors (simple wrapper - not inherently Python-dependent)
-- Communication: REST API (axios)
+- Interpreter: Go compiled to WebAssembly (embedded in browser)
+- Storage: localStorage for file I/O and data persistence
 
 **Interactive UI Rendering:**
 
@@ -175,7 +172,7 @@ The layer system is the core innovation of the language:
 
 ### Data Layer Implementation
 
-The data layer (`layer/layers/data.py`) provides side effects through an **Option pattern** (functional error handling):
+The data layer (`layer-go/pkg/interpreter/data_layer_wasm.go`) provides side effects through an **Option pattern** (functional error handling):
 
 - All I/O operations return `data.Some(value)` on success or `data.None()` on failure
 - Operations: file I/O, JSON parsing, localStorage
@@ -183,17 +180,17 @@ The data layer (`layer/layers/data.py`) provides side effects through an **Optio
 
 ## Important Patterns and Conventions
 
-### When Working with the Interpreter
+### When Working with the Go Interpreter
 
-1. **Always activate the virtual environment** before running Python code
-2. **Parser changes require AST node updates**: If adding new syntax, update both `parser.py` and `ast_nodes.py`
-3. **Layer functions** are registered in `layer/layers/__init__.py` via `register_layer()`
-4. **Pattern matching** is implemented in `interpreter.py`'s `match_pattern()` method
-5. **Closures capture environment**: Functions in Layer are closures (see `Closure` class in `interpreter.py`)
+1. **Build before testing**: Run `go build` after making changes to ensure code compiles
+2. **Parser changes require AST node updates**: If adding new syntax, update both `parser/` and `ast/` packages
+3. **Layer functions** are registered in `layer-go/pkg/interpreter/*_layer.go` files (e.g., `core_layer.go`, `ui_layer.go`)
+4. **Pattern matching** is implemented in `interpreter.go`'s `matchPattern()` method
+5. **Closures capture environment**: Functions in Layer are closures (see `Closure` struct in `interpreter.go`)
 
 ### When Working with the Visual Editor
 
-1. **Backend must be running** for frontend to execute code (currently - see Future Architecture below)
+1. **No backend needed**: Visual editor runs standalone with WASM interpreter embedded
 2. **Frontend uses Vite**: Much faster than Create React App, uses ES modules
 3. **Monaco editor integration**: Loaded via `@monaco-editor/react` package
 4. **UI Preview is fully interactive**: The `UIPreview.tsx` component parses XML output from Layer's UI layer and renders actual Material UI components
@@ -245,10 +242,16 @@ app()
 
 ## Testing
 
-Tests use pytest and are located in `tests/`:
-- `test_lexer.py`: Tokenization tests
-- `test_parser.py`: Parsing and AST generation tests
-- `test_interpreter.py`: Evaluation and runtime tests
+Tests use Go's testing framework and are located in `layer-go/`:
+- `pkg/lexer/*_test.go`: Tokenization tests
+- `pkg/parser/*_test.go`: Parsing and AST generation tests
+- `pkg/interpreter/*_test.go`: Evaluation and runtime tests
+
+Run all tests:
+```bash
+cd layer-go
+go test ./...
+```
 
 **Note**: Type inference is specified but not yet implemented (current implementation uses dynamic typing).
 
@@ -256,18 +259,20 @@ Tests use pytest and are located in `tests/`:
 
 ### Adding a New Built-in Function to a Layer
 
-1. Open the appropriate layer file (e.g., `layer/layers/core.py`)
-2. Add the function to the layer's function dictionary
-3. Update tests in `tests/test_interpreter.py`
+1. Open the appropriate layer file (e.g., `layer-go/pkg/interpreter/core_layer.go`)
+2. Add the function using `lc.Define()` in the `Setup*Layer()` function
+3. Update tests in `layer-go/pkg/interpreter/*_test.go`
 4. Document in `LANGUAGE_SPEC.md` if it's a public API
+5. Rebuild WASM if needed: `cd layer-go && ./build-wasm.sh`
 
 ### Adding a New Layer
 
-1. Create new file in `layer/layers/` (e.g., `async.py`)
-2. Define layer functions as a dictionary
-3. Register in `layer/layers/__init__.py`
-4. Update `LANGUAGE_SPEC.md` with layer documentation
-5. Add layer color mapping in visual editor (`visual-editor/frontend/src/components/LayerStack.jsx`)
+1. Create new file in `layer-go/pkg/interpreter/` (e.g., `async_layer.go`)
+2. Define `SetupAsyncLayer(lc *layers.LayerContext)` function
+3. Register layer functions using `lc.Define()`
+4. Call the setup function in `interpreter.go`
+5. Update `LANGUAGE_SPEC.md` with layer documentation
+6. Add layer color mapping in visual editor (`visual-editor/frontend/src/components/LayerStack.tsx`)
 
 ### Debugging Layer Programs
 
@@ -283,15 +288,20 @@ Use the debug layer to trace execution:
 }
 ```
 
-Or use Python's debugger on the interpreter:
+Or use Go's debugging tools:
 ```bash
-python -m pdb -m layer.cli run myprogram.layer
+# Run with verbose output
+cd layer-go
+./layer run --verbose ../examples/myprogram.layer
+
+# Use Delve debugger
+dlv debug ./cmd/layer -- run ../examples/myprogram.layer
 ```
 
 ## Project Status
 
 This is an experimental language exploring novel programming concepts. Current implementation status:
-- ✅ Lexer, parser, interpreter (Python AND Go!)
+- ✅ Lexer, parser, interpreter (Go implementation)
 - ✅ Core, UI, Debug, Data layers
 - ✅ Visual editor with Monaco integration
 - ✅ **Interactive UI rendering** - UI layer components render as live, interactive React components
@@ -299,24 +309,22 @@ This is an experimental language exploring novel programming concepts. Current i
 - ❌ Type inference (Hindley-Milner specified but not implemented)
 - ❌ Module system
 - ❌ Effect system
+- ❌ Purity enforcement system (planned - see LANGUAGE_SPEC.md)
 
 ## ✅ WebAssembly Architecture (COMPLETED!)
 
-**Status**: The Layer interpreter has been successfully ported to Go and compiled to WebAssembly!
+**Status**: The Layer interpreter is implemented in Go and compiled to WebAssembly!
 
 **What's Complete**:
 - ✅ Full Go implementation in `layer-go/` (lexer, parser, interpreter, layer system)
-- ✅ All 20 tests passing
-- ✅ WASM module compiled (`layer.wasm` - 3.1 MB)
+- ✅ All tests passing
+- ✅ WASM module compiled (`layer.wasm` - ~3 MB)
 - ✅ Frontend integrated (no backend needed!)
-- ✅ 10x performance improvement over Python
+- ✅ Near-native performance
 
 **Architecture**:
 ```
-Before (Client-Server):
-React Frontend ←(HTTP)→ Flask Backend ←(calls)→ Python Interpreter
-
-After (Standalone):
+Standalone (Current):
 React Frontend ←(Direct JS calls)→ Layer WASM Module (Go compiled)
 ```
 

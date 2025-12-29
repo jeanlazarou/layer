@@ -1,6 +1,6 @@
 # Layer Visual Editor - Quick Start Guide
 
-Get the visual editor running in 3 minutes! ⚡
+Get the visual editor running in 2 minutes! ⚡
 
 ## Prerequisites Check
 
@@ -8,31 +8,18 @@ Get the visual editor running in 3 minutes! ⚡
 # Check Node.js (need 16+)
 node --version
 
-# Check Python (need 3.8+)
-python3 --version
-
 # Check npm
 npm --version
 ```
 
+**Note**: No Python needed! The interpreter runs in WebAssembly.
+
 ## Step-by-Step Setup
 
-### 1. Install Backend
+### 1. Install Frontend
 
 ```bash
-cd visual-editor/backend
-pip install -r requirements.txt
-```
-
-Expected output:
-```
-Successfully installed Flask-3.0.0 flask-cors-4.0.0
-```
-
-### 2. Install Frontend
-
-```bash
-cd ../frontend
+cd visual-editor/frontend
 npm install
 ```
 
@@ -44,29 +31,9 @@ added 300+ packages...
 **Note**: We use:
 - ⚡ **Vite** for 10-30x faster builds than CRA
 - 📘 **TypeScript** for type safety and better developer experience
+- 🦀 **WebAssembly** for near-native performance
 
-### 3. Start Backend Server
-
-In **Terminal 1**:
-
-```bash
-cd visual-editor/backend
-python app.py
-```
-
-You should see:
-```
-🚀 Layer Visual Editor Backend Starting...
-📡 API available at http://localhost:5000
-🔗 Frontend should connect to this server
- * Running on http://0.0.0.0:5000
-```
-
-**Keep this terminal running!**
-
-### 4. Start Frontend
-
-In **Terminal 2** (new terminal):
+### 2. Start Visual Editor
 
 ```bash
 cd visual-editor/frontend
@@ -75,12 +42,12 @@ npm run dev
 
 You should see:
 ```
-  ➜  Local:   http://localhost:3000/
+  ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
   ➜  ready in 350 ms ⚡
 ```
 
-**Your browser will automatically open to http://localhost:3000**
+**Your browser will automatically open to http://localhost:5173**
 
 ## First Run
 
@@ -120,25 +87,17 @@ You should now see:
 
 - **Left Panel**: Layer stack (like Photoshop layers)
 - **Center**: Monaco code editor (VS Code editor)
-- **Bottom**: Terminal-style output console
+- **Bottom**: Terminal-style output console + UI preview
 - **Top Bar**: Execute, Save, Help buttons
+- **Under the Hood**: WebAssembly interpreter running locally in your browser!
 
 ## Common Issues
 
-### "Backend not responding"
-
-**Solution**: Check if backend is running on port 5000
-```bash
-curl http://localhost:5000/api/health
-```
-
-Should return: `{"status":"healthy"}`
-
-### "Port 3000 already in use"
+### "Port 5173 already in use"
 
 **Solution**: Use a different port
 ```bash
-PORT=3001 npm start
+PORT=5174 npm run dev
 ```
 
 ### "Module not found"
@@ -149,19 +108,28 @@ rm -rf node_modules package-lock.json
 npm install
 ```
 
+### "WASM loading error"
+
+**Solution**: Rebuild the WASM module
+```bash
+cd ../../layer-go
+./build-wasm.sh
+```
+
 ## Next Steps
 
 ✅ Try editing the factorial function
 ✅ Toggle layers on/off with the eye icon
 ✅ Create your own layer code
 ✅ Experiment with debug logging
+✅ Try the UI layer with interactive components!
 
 See full [README.md](README.md) for more features!
 
 ## Need Help?
 
 - Read the [full documentation](README.md)
-- Check the [Layer language tutorial](../../docs/TUTORIAL.md)
+- Check the [Layer language spec](../../LANGUAGE_SPEC.md)
 - See [example programs](../../examples/)
 
 Happy layer programming! 🎨✨

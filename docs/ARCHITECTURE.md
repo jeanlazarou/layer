@@ -2,11 +2,11 @@
 
 ## Overview
 
-Layer is implemented as a tree-walk interpreter written in Python. The architecture follows a traditional compiler pipeline with additional support for layer composition.
+Layer is implemented as a tree-walk interpreter written in Go and compiled to WebAssembly. The architecture follows a traditional compiler pipeline with additional support for layer composition.
 
 ## Components
 
-### 1. Lexer (`layer/lexer.py`)
+### 1. Lexer (`layer-go/pkg/lexer`)
 
 The lexer performs tokenization of Layer source code.
 
@@ -21,7 +21,7 @@ The lexer performs tokenization of Layer source code.
 - String interpolation preparation
 - Multi-character operators (→, ==, !=, etc.)
 
-### 2. Parser (`layer/parser.py`)
+### 2. Parser (`layer-go/pkg/parser`)
 
 The parser builds an Abstract Syntax Tree (AST) from tokens.
 
@@ -37,9 +37,9 @@ The parser builds an Abstract Syntax Tree (AST) from tokens.
 - Record and list literals
 - Function definitions with parameters
 
-### 3. AST Nodes (`layer/ast_nodes.py`)
+### 3. AST Nodes (`layer-go/pkg/ast`)
 
-Defines all AST node types using Python dataclasses.
+Defines all AST node types using Go structs.
 
 **Node Categories:**
 - Literals: Numbers, strings, booleans, lists, records, tuples
@@ -49,11 +49,11 @@ Defines all AST node types using Python dataclasses.
 - Operators: Binary and unary operations
 - Layers: Layer declarations and directives
 
-### 4. Layer System (`layer/layers/`)
+### 4. Layer System (`layer-go/pkg/layers`)
 
 Manages layer composition and function resolution.
 
-**LayerContext** (`layer/layers/__init__.py`):
+**LayerContext** (`layer-go/pkg/layers/layer_context.go`):
 - Maintains layer stack (bottom to top)
 - Resolves function lookups across layers
 - Supports layer-specific lookups (e.g., `core.factorial`)
@@ -61,25 +61,31 @@ Manages layer composition and function resolution.
 
 **Built-in Layers:**
 
-**Core Layer** (`layer/layers/core.py`):
+**Core Layer** (`layer-go/pkg/interpreter/core_layer.go`):
 - Always enabled
 - Provides fundamental operations
 - Arithmetic, comparison, logical operators
 - List operations: map, filter, reduce, etc.
 - String operations
 
-**Debug Layer** (`layer/layers/debug.py`):
+**Debug Layer** (`layer-go/pkg/interpreter/debug_layer.go`):
 - Logging and tracing
 - Function call inspection
 - Benchmarking
 - Assertions
 
-**UI Layer** (`layer/layers/ui.py`):
+**UI Layer** (`layer-go/pkg/interpreter/ui_layer.go`):
 - Declarative UI components
 - Component tree building
 - Rendering abstraction
+- XML output for visual editor
 
-### 5. Interpreter (`layer/interpreter.py`)
+**Data Layer** (`layer-go/pkg/interpreter/data_layer_wasm.go`):
+- File I/O (via browser localStorage)
+- JSON operations
+- Option pattern for error handling
+
+### 5. Interpreter (`layer-go/pkg/interpreter/interpreter.go`)
 
 Evaluates AST nodes in the context of layers.
 
@@ -98,14 +104,15 @@ Evaluates AST nodes in the context of layers.
 
 ### 6. CLI Tools
 
-**CLI** (`layer/cli.py`):
+**CLI** (`layer-go/cmd/layer/main.go`):
 - File execution
+- REPL mode
 - Error handling and reporting
 
-**REPL** (`layer/repl.py`):
-- Interactive evaluation
-- Command support (help, layers, clear)
-- Error recovery
+**WASM Interface** (`layer-go/cmd/wasm/main.go`):
+- WebAssembly exports for browser
+- JavaScript interop
+- Browser file system integration
 
 ## Execution Flow
 
@@ -138,9 +145,11 @@ Layers are stacked from bottom to top:
 ┌─────────────────┐
 │   Debug Layer   │ ← Can wrap core functions
 ├─────────────────┤
+│   Data Layer    │ ← File I/O, JSON, localStorage
+├─────────────────┤
 │   UI Layer      │ ← Can use core functions
 ├─────────────────┤
-│   Core Layer    │ ← Base functionality
+│   Core Layer    │ ← Base functionality (always enabled)
 └─────────────────┘
 ```
 
@@ -168,7 +177,7 @@ The language specification includes a Hindley-Milner type system, but type infer
 
 ## Pattern Matching
 
-Pattern matching is implemented via the `match_pattern` method in the interpreter:
+Pattern matching is implemented via the `matchPattern` method in the interpreter:
 
 **Supported Patterns:**
 - Literal patterns: `0`, `"hello"`
@@ -185,11 +194,13 @@ Pattern matching is implemented via the `match_pattern` method in the interprete
 
 Functions in Layer are closures that capture their environment:
 
-```python
-class Closure:
-    params: List[str]      # Parameter names
-    body: ASTNode          # Function body AST
-    env: Dict[str, Any]    # Captured environment
+```go
+type Closure struct {
+    Params      []string           // Parameter names
+    Body        ast.Node           // Function body AST
+    Env         map[string]interface{} // Captured environment
+    Interpreter *Interpreter       // Reference to interpreter
+}
 ```
 
 When a closure is called:
@@ -204,13 +215,36 @@ All errors include position information (line, column):
 - **Parser errors**: Unexpected tokens, syntax errors
 - **Runtime errors**: Type errors, undefined variables, pattern match failures
 
+## WebAssembly Architecture
+
+The Go interpreter is compiled to WebAssembly for browser execution:
+
+**Compilation:**
+```bash
+cd layer-go
+GOOS=js GOARCH=wasm go build -o layer.wasm ./cmd/wasm
+```
+
+**Browser Integration:**
+- WASM module loaded in React frontend
+- JavaScript interop via `syscall/js` package
+- File I/O through browser localStorage
+- Synchronous operations to avoid WASM event loop deadlocks
+
+**Performance:**
+- Near-native execution speed
+- ~3MB WASM binary
+- No network latency (runs locally)
+- Offline-capable
+
 ## Future Enhancements
 
-1. **Type Inference**: Hindley-Milner type checking
-2. **Module System**: Import/export between files
-3. **Effect System**: Track and manage side effects
-4. **Optimization**: Bytecode compilation, JIT
-5. **Visual Editor**: Photoshop-like layer UI
-6. **Hot Reloading**: Live layer updates
-7. **Debugger**: Step-through execution, breakpoints
-8. **Package Manager**: Layer package ecosystem
+1. **Purity Enforcement**: `@layer<pure>` vs `@layer<impure>` markers (see LANGUAGE_SPEC.md)
+2. **Type Inference**: Hindley-Milner type checking
+3. **Module System**: Import/export between files
+4. **Effect System**: Track and manage side effects
+5. **Optimization**: Bytecode compilation, JIT
+6. **Visual Editor Enhancements**: Photoshop-like layer UI
+7. **Hot Reloading**: Live layer updates
+8. **Debugger**: Step-through execution, breakpoints
+9. **Package Manager**: Layer package ecosystem
