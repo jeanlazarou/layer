@@ -215,6 +215,17 @@ func (l *ListPattern) String() string {
 	return "ListPattern"
 }
 
+// RecordPattern matches a record (partial — extra fields are ignored).
+// Each field value is itself a pattern.
+type RecordPattern struct {
+	Base
+	Fields map[string]Node // field name → sub-pattern
+}
+
+func (r *RecordPattern) String() string {
+	return "RecordPattern"
+}
+
 // Operators
 
 type BinaryOp struct {

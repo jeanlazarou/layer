@@ -106,6 +106,22 @@ match x with
 | _ -> "not zero"
 ```
 
+**Record patterns:**
+
+Destructure records by field name. Matching is partial — extra fields in the value are ignored:
+
+```layer
+fn greet(person) =
+    match person with
+    | {name: n, age: a} when a >= 18 -> str_concat("Hello, ", n)
+    | {name: n}                       -> str_concat("Hi kid, ", n)
+
+greet({name: "Alice", age: 30})  # → "Hello, Alice"
+greet({name: "Tom",   age: 10})  # → "Hi kid, Tom"
+```
+
+If a field named in the pattern is absent from the value, the case is skipped.
+
 **Guard clauses (`when`):**
 
 Add a boolean condition after a pattern with `when`. The case only fires if the pattern matches *and* the guard is true:

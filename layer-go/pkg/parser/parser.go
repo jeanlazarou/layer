@@ -432,6 +432,11 @@ func (p *Parser) parsePattern() (ast.Node, error) {
 		return p.parseListPattern()
 	}
 
+	// Record pattern
+	if p.match(lexer.LBRACE) {
+		return p.parseRecordPattern()
+	}
+
 	// Identifier pattern (variable binding or wildcard)
 	if p.match(lexer.IDENTIFIER) {
 		idToken := p.advance()
@@ -484,6 +489,48 @@ func (p *Parser) parseListPattern() (*ast.ListPattern, error) {
 		Base:     ast.Base{Line: start.Line, Column: start.Column},
 		Elements: elements,
 		Rest:     rest,
+	}, nil
+}
+
+// parseRecordPattern parses record pattern: {name: n, age: a}
+// Fields are partial — extra fields in the value are ignored.
+// Each field value is a sub-pattern.
+func (p *Parser) parseRecordPattern() (*ast.RecordPattern, error) {
+	start, err := p.expect(lexer.LBRACE)
+	if err != nil {
+		return nil, err
+	}
+
+	fields := make(map[string]ast.Node)
+	for !p.match(lexer.RBRACE) {
+		keyToken, err := p.expect(lexer.IDENTIFIER)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := p.expect(lexer.COLON); err != nil {
+			return nil, err
+		}
+
+		subPattern, err := p.parsePattern()
+		if err != nil {
+			return nil, err
+		}
+
+		fields[keyToken.Value.(string)] = subPattern
+
+		if p.match(lexer.COMMA) {
+			p.advance()
+		}
+	}
+
+	if _, err := p.expect(lexer.RBRACE); err != nil {
+		return nil, err
+	}
+
+	return &ast.RecordPattern{
+		Base:   ast.Base{Line: start.Line, Column: start.Column},
+		Fields: fields,
 	}, nil
 }
 

@@ -303,9 +303,20 @@ fn classify(n) =
     | n              -> "positive"
 ```
 
+Record patterns destructure records by field name. Matching is partial — extra fields are ignored:
+
+```layer
+fn classify(person) =
+    match person with
+    | {age: a} when a < 18 -> "minor"
+    | {age: a} when a < 65 -> "adult"
+    | {age: a}             -> "senior"
+```
+
 **Benefits**:
 - More expressive than if/else chains
 - Guards eliminate nested conditionals
+- Record patterns eliminate manual field extraction
 - Compiler can verify exhaustiveness
 - Natural for working with data structures
 

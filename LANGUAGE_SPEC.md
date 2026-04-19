@@ -204,6 +204,50 @@ fn sum(lst) =
     | [h, ...tail] -> h + sum(tail)
 ```
 
+#### Record patterns
+
+**Status**: ✅ **Implemented**
+
+Record patterns destructure records by field name. Each field value is itself a sub-pattern. Matching is **partial** — the value may have extra fields that the pattern does not mention.
+
+```layer
+fn greet(person) =
+    match person with
+    | {name: n} -> str_concat("Hello, ", n)
+
+greet({name: "Alice", age: 30})  # → "Hello, Alice"
+```
+
+Multiple fields:
+
+```layer
+fn describe(p) =
+    match p with
+    | {name: n, age: a} -> str_concat(n, str_concat(" is ", to_string(a)))
+
+describe({name: "Bob", age: 25})  # → "Bob is 25"
+```
+
+Field values can be any sub-pattern, including literals:
+
+```layer
+match {status: "active", id: 42} with
+| {status: "active", id: n} -> n    # → 42
+| {status: _}               -> 0
+```
+
+Record patterns compose with guard clauses:
+
+```layer
+fn classify(person) =
+    match person with
+    | {age: a} when a < 18 -> "minor"
+    | {age: a} when a < 65 -> "adult"
+    | {age: a}             -> "senior"
+```
+
+If a field named in the pattern does not exist in the value, the case is skipped (falls through to the next case).
+
 ### Layer Declarations
 
 The `@layers` directive **enables** specific layers and sets their **order**. Only enabled layers are active!

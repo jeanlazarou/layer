@@ -425,6 +425,28 @@ func (i *Interpreter) matchPattern(pattern ast.Node, value interface{}, env map[
 		}
 		return map[string]interface{}{p.Name: value}
 
+	case *ast.RecordPattern:
+		record, ok := value.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+
+		bindings := make(map[string]interface{})
+		for fieldName, subPattern := range p.Fields {
+			fieldVal, exists := record[fieldName]
+			if !exists {
+				return nil // required field missing
+			}
+			fieldBindings := i.matchPattern(subPattern, fieldVal, env)
+			if fieldBindings == nil {
+				return nil
+			}
+			for k, v := range fieldBindings {
+				bindings[k] = v
+			}
+		}
+		return bindings
+
 	case *ast.ListPattern:
 		list, ok := value.([]interface{})
 		if !ok {
