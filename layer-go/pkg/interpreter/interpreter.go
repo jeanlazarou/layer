@@ -210,12 +210,8 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			return val, nil
 		}
 
-		// Then in layer context
-		val, err := i.layerContext.Lookup(n.Name)
-		if err != nil {
-			return nil, i.error(node, fmt.Sprintf("undefined variable: %s", n.Name))
-		}
-		return val, nil
+		// Then in layer context, applying blend mode
+		return i.lookupWithBlend(node, n.Name)
 
 	// Member access (layer.function)
 	case *ast.MemberAccess:
@@ -355,7 +351,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 		for _, matchCase := range n.Cases {
 			bindings := i.matchPattern(matchCase.Pattern, value, env)
 			if bindings != nil {
-				// Pattern matched, evaluate body with bindings
+				// Build env with pattern bindings for guard and body
 				newEnv := make(map[string]interface{})
 				for k, v := range env {
 					newEnv[k] = v
@@ -363,6 +359,22 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 				for k, v := range bindings {
 					newEnv[k] = v
 				}
+
+				// Evaluate guard if present
+				if matchCase.Guard != nil {
+					guardResult, err := i.Eval(matchCase.Guard, newEnv)
+					if err != nil {
+						return nil, err
+					}
+					guardBool, ok := guardResult.(bool)
+					if !ok {
+						return nil, i.error(matchCase.Guard, fmt.Sprintf("guard expression must evaluate to a boolean, got %T", guardResult))
+					}
+					if !guardBool {
+						continue // Guard failed, try next case
+					}
+				}
+
 				return i.Eval(matchCase.Body, newEnv)
 			}
 		}
@@ -465,10 +477,111 @@ func (i *Interpreter) matchPattern(pattern ast.Node, value interface{}, env map[
 	return nil
 }
 
+// callValue invokes a value that may be a *Closure or a built-in Go function.
+func callValue(val interface{}, args ...interface{}) (interface{}, error) {
+	if closure, ok := val.(*Closure); ok {
+		return closure.Call(args...)
+	}
+	if fn, ok := val.(func(...interface{}) (interface{}, error)); ok {
+		return fn(args...)
+	}
+	return nil, fmt.Errorf("not callable: %T", val)
+}
+
+// isNoneValue checks whether a value is the data layer's None option type.
+func isNoneValue(val interface{}) bool {
+	if m, ok := val.(map[string]interface{}); ok {
+		if t, ok := m["type"].(string); ok {
+			return t == "None"
+		}
+	}
+	return false
+}
+
+// lookupWithBlend resolves a name from the layer context, applying the active blend mode.
+func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, error) {
+	mode := i.layerContext.GetBlendMode()
+
+	if mode == "" || mode == "override" {
+		val, err := i.layerContext.Lookup(name)
+		if err != nil {
+			return nil, i.error(node, fmt.Sprintf("undefined variable: %s", name))
+		}
+		return val, nil
+	}
+
+	// Collect all definitions across layers (top to bottom).
+	values := i.layerContext.LookupAll(name)
+	if len(values) == 0 {
+		return nil, i.error(node, fmt.Sprintf("undefined variable: %s", name))
+	}
+	if len(values) == 1 {
+		return values[0], nil
+	}
+
+	switch mode {
+	case "chain":
+		// Pipe result from bottom layer up through each higher layer.
+		// values[0] = top layer, values[len-1] = bottom layer.
+		return func(args ...interface{}) (interface{}, error) {
+			result, err := callValue(values[len(values)-1], args...)
+			if err != nil {
+				return nil, err
+			}
+			for j := len(values) - 2; j >= 0; j-- {
+				result, err = callValue(values[j], result)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return result, nil
+		}, nil
+
+	case "collect":
+		// Call every layer that defines the name; return results as a list.
+		return func(args ...interface{}) (interface{}, error) {
+			results := make([]interface{}, 0, len(values))
+			for _, val := range values {
+				res, err := callValue(val, args...)
+				if err != nil {
+					return nil, err
+				}
+				results = append(results, res)
+			}
+			return results, nil
+		}, nil
+
+	case "fallback":
+		// Try from top layer down; return first result that is not None.
+		return func(args ...interface{}) (interface{}, error) {
+			var lastResult interface{}
+			for _, val := range values {
+				res, err := callValue(val, args...)
+				if err != nil {
+					continue
+				}
+				if !isNoneValue(res) {
+					return res, nil
+				}
+				lastResult = res
+			}
+			if lastResult != nil {
+				return lastResult, nil
+			}
+			return callValue(values[len(values)-1], args...)
+		}, nil
+	}
+
+	return values[0], nil
+}
+
 // Execute executes a complete Layer program
 func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
 	// Enable layers
 	if program.LayersDirective != nil {
+		if program.LayersDirective.BlendMode != "" {
+			i.layerContext.SetBlendMode(program.LayersDirective.BlendMode)
+		}
 		for _, layerName := range program.LayersDirective.LayerNames {
 			if err := i.EnableLayer(layerName); err != nil {
 				return nil, err

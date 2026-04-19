@@ -11,6 +11,7 @@ type LayerContext struct {
 	layers       map[string]map[string]interface{}
 	layerOrder   []string // Bottom to top
 	currentLayer string
+	blendMode    string // "override" (default/""), "chain", "collect", "fallback"
 }
 
 // NewLayerContext creates a new layer context
@@ -115,6 +116,28 @@ func (lc *LayerContext) GetAllNames() []string {
 // GetLayers returns the layer order
 func (lc *LayerContext) GetLayers() []string {
 	return lc.layerOrder
+}
+
+// SetBlendMode sets the blend mode for function resolution
+func (lc *LayerContext) SetBlendMode(mode string) {
+	lc.blendMode = mode
+}
+
+// GetBlendMode returns the current blend mode
+func (lc *LayerContext) GetBlendMode() string {
+	return lc.blendMode
+}
+
+// LookupAll returns all matching values from top layer down to bottom.
+// Only includes layers that actually define the name.
+func (lc *LayerContext) LookupAll(name string) []interface{} {
+	var values []interface{}
+	for i := len(lc.layerOrder) - 1; i >= 0; i-- {
+		if value, found := lc.layers[lc.layerOrder[i]][name]; found {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 // String returns a string representation of the layer context

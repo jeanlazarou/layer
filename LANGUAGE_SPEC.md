@@ -23,10 +23,11 @@ A Layer program consists of one or more layers stacked on top of each other. Eac
 
 ### The `@layers` Directive
 
-The `@layers` directive has **two purposes**:
+The `@layers` directive has **three purposes**:
 
 1. **Enable/Disable**: Only layers listed in `@layers [...]` are active
 2. **Set Order**: The order in the list determines search priority
+3. **Set Blend Mode** (optional): Controls how functions defined in multiple layers are combined
 
 ```layer
 @layers [core, middleware, debug]
@@ -120,6 +121,12 @@ let result = add(5, 3) in
 match value with
 | 0 -> "zero"
 | n -> "non-zero"
+
+# Pattern matching with guard clauses
+match value with
+| n when n < 0 -> "negative"
+| 0            -> "zero"
+| n            -> "positive"
 ```
 
 ### Data Types
@@ -144,6 +151,57 @@ false
 
 # Tuples
 (1, "hello", true)
+```
+
+### Pattern Matching
+
+Pattern matching is the primary control flow mechanism. Cases are tried in order; the first matching case runs.
+
+#### Basic patterns
+
+```layer
+fn describe(x) =
+    match x with
+    | 0    -> "zero"
+    | 1    -> "one"
+    | n    -> "other"   # identifier pattern — binds x to n
+    | _    -> "ignored" # wildcard — never reached here, but valid
+```
+
+#### Guard clauses
+
+**Status**: ✅ **Implemented**
+
+A `when` clause after the pattern adds a boolean condition. The case only matches if both the pattern matches **and** the guard evaluates to `true`. If the guard is `false`, the next case is tried.
+
+```layer
+fn classify(n) =
+    match n with
+    | n when n < 0   -> "negative"
+    | 0              -> "zero"
+    | n when n > 100 -> "large"
+    | n              -> "positive"
+```
+
+Guards can reference variables bound by the pattern:
+
+```layer
+fn first_is_one(list) =
+    match list with
+    | [h, ...rest] when h == 1 -> "starts with one"
+    | [h, ...rest]             -> "other"
+    | []                       -> "empty"
+```
+
+If a guard expression evaluates to a non-boolean value, a runtime error is raised.
+
+#### List patterns
+
+```layer
+fn sum(lst) =
+    match lst with
+    | []           -> 0
+    | [h, ...tail] -> h + sum(tail)
 ```
 
 ### Layer Declarations
@@ -646,6 +704,125 @@ factorial(5)
 
 # Compose layers explicitly
 ui.render_result(5)
+```
+
+## Layer Blend Modes
+
+**Status**: ✅ **Implemented**
+
+By default, when a function is defined in multiple layers, the **top layer wins** (override). Blend modes change this behaviour. They are set on the `@layers` directive and apply to every function call resolved through the layer stack.
+
+```layer
+@layers [core, cache, data] blend: fallback
+```
+
+### Available Blend Modes
+
+| Mode | Behaviour | Best for |
+|---|---|---|
+| `override` (default) | Top layer's version wins | Wrapping / decoration patterns |
+| `chain` | Result is piped bottom → top through every layer that defines the function | Transformations, middleware pipelines |
+| `collect` | Every layer's version is called; results returned as a list (top → bottom) | Gathering contributions from all layers |
+| `fallback` | Top layer first; if it returns `None`, try the next layer down | Optional caching, feature flags |
+
+### `override` (default)
+
+Current behaviour — no change needed. The topmost layer that defines a function is the one that runs.
+
+```layer
+@layers [core, debug]  # Same as @layers [core, debug] blend: override
+
+@layer core {
+    fn process(x) = x + 1
+}
+@layer debug {
+    fn process(x) = core.process(x)  # wraps core
+}
+
+process(5)  # → debug.process(5) = core.process(5) = 6
+```
+
+### `chain`
+
+Each layer that defines the function is called in turn, bottom → top. The output of one layer becomes the input to the next.
+
+```layer
+@layers [core, transform] blend: chain
+
+@layer core {
+    fn process(x) = x + 1      # bottom layer: 5 → 6
+}
+@layer transform {
+    fn process(x) = x * 2      # top layer:  6 → 12
+}
+
+process(5)  # → core.process(5) = 6 → transform.process(6) = 12
+```
+
+Useful for **transformation pipelines** where each layer applies a step.
+
+### `collect`
+
+Every layer that defines the function is called with the same arguments. Results are returned as a list, ordered top → bottom.
+
+```layer
+@layers [core, extra] blend: collect
+
+@layer core  { fn tag(x) = "core"  }
+@layer extra { fn tag(x) = "extra" }
+
+tag("anything")  # → ["extra", "core"]
+```
+
+Useful when multiple layers should all **contribute** to a result — event handlers, validators, collectors.
+
+### `fallback`
+
+Layers are tried top → bottom. The first result that is not `data.None()` is returned. Requires the `data` layer for `Some`/`None`.
+
+```layer
+@layers [core, data, cache] blend: fallback
+
+@layer cache {
+    fn fetch(key) = data.None()          # cache miss
+}
+@layer core {
+    fn fetch(key) = data.Some("from_db") # database hit
+}
+
+fetch("mykey")  # → cache returns None → falls back to core → Some("from_db")
+```
+
+When the cache has a value:
+
+```layer
+@layer cache {
+    fn fetch(key) = data.Some("from_cache")  # cache hit
+}
+
+fetch("mykey")  # → Some("from_cache") — core is never called
+```
+
+Useful for **layered caching**, **feature flags**, or any **try-first pattern**.
+
+### Blend Mode and Explicit Layer Access
+
+Blend modes only affect calls that go through normal layer resolution. Explicit layer access (e.g., `core.factorial`) always bypasses blend mode and calls that specific layer directly.
+
+```layer
+@layers [core, transform] blend: chain
+
+process(5)         # blend mode applies → 12
+core.process(5)    # blend mode bypassed → 6
+```
+
+### Validation
+
+Unknown blend modes are caught at **parse time**:
+
+```layer
+@layers [core] blend: bogus
+# Error: unknown blend mode 'bogus': must be override, chain, collect, or fallback
 ```
 
 ## Layer Purity System
@@ -1797,7 +1974,10 @@ myprogram.layer
 - Module system for organizing large programs
 - Effect system for managing side effects
 - Dependent types
-- Layer inheritance and composition operators
-- Visual layer editor (Photoshop-like UI)
+- Layer introspection (`@which`, `@inspect`, `@diff`)
+- Conditional layer activation (`@layers [core, debug if env == "development"]`)
+- Flatten operation — merge a layer stack into a single resolved layer
+- Layer effect types and purity enforcement (see [Layer Purity System](#layer-purity-system))
 - Hot reloading of individual layers
 - Layer versioning and compatibility
+- Visual layer diff view in the editor

@@ -292,8 +292,20 @@ fn factorial(n) =
     | n -> n * factorial(n - 1)
 ```
 
+Guard clauses add boolean conditions to patterns — the case only fires if the pattern matches *and* the guard is true:
+
+```layer
+fn classify(n) =
+    match n with
+    | n when n < 0   -> "negative"
+    | 0              -> "zero"
+    | n when n > 100 -> "large"
+    | n              -> "positive"
+```
+
 **Benefits**:
 - More expressive than if/else chains
+- Guards eliminate nested conditionals
 - Compiler can verify exhaustiveness
 - Natural for working with data structures
 
@@ -368,6 +380,23 @@ When you call `factorial(5)`, the interpreter searches layers from top to bottom
 3. **Aspect-Oriented Programming**: Cross-cutting concerns (logging, caching) are layers
 4. **Override Patterns**: Higher layers can wrap lower layers
 5. **Visual Organization**: Layers make architecture visible
+
+### Blend Modes — Beyond Override
+
+The Photoshop metaphor extends further than just stacking. Photoshop layers have blend modes (Multiply, Screen, Overlay…). Layer has four:
+
+| Mode | What it does |
+|---|---|
+| `override` | Top layer wins — the default, for decoration/wrapping |
+| `chain` | Result is piped bottom → top through every layer |
+| `collect` | All layers contribute; results gathered into a list |
+| `fallback` | Top layer first; if it returns `None`, try the next |
+
+```layer
+@layers [core, cache, data] blend: fallback
+```
+
+This is the most direct expression of the Photoshop metaphor in the language. Instead of asking "which layer wins?", you ask "how should the layers *combine*?" That question is architectural and makes intent explicit in the program's opening line.
 
 ---
 

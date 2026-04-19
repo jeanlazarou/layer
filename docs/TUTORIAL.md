@@ -106,6 +106,32 @@ match x with
 | _ -> "not zero"
 ```
 
+**Guard clauses (`when`):**
+
+Add a boolean condition after a pattern with `when`. The case only fires if the pattern matches *and* the guard is true:
+
+```layer
+fn classify(n) =
+    match n with
+    | n when n < 0   -> "negative"
+    | 0              -> "zero"
+    | n when n > 100 -> "large"
+    | n              -> "positive"
+```
+
+Guards can use variables bound by the pattern — here `n` in the guard refers to the matched value:
+
+```layer
+fn greet_age(age) =
+    match age with
+    | a when a < 13  -> "Hi, kid!"
+    | a when a < 18  -> "Hey, teenager!"
+    | a when a >= 65 -> "Good day, elder!"
+    | _              -> "Hello!"
+```
+
+If no case matches (all patterns failed or all guards were false), a runtime error is raised.
+
 ### 4. Lists
 
 Lists are immutable and can contain any values:
@@ -245,6 +271,87 @@ In this example:
 - UI layer presents the result
 - Each layer builds on the ones below
 
+## Layer Blend Modes
+
+By default, the **top layer wins** when multiple layers define the same function (override). You can change this with the `blend:` option on `@layers`:
+
+```layer
+@layers [core, cache, data] blend: fallback
+```
+
+There are four blend modes:
+
+### `override` (default)
+
+The highest layer in the stack that defines the function is called. This is the standard wrapping/decoration pattern.
+
+### `chain`
+
+The result is piped through every layer that defines the function, from bottom to top. Each layer transforms the output of the layer below it.
+
+```layer
+@layers [core, sanitize] blend: chain
+
+@layer core {
+    fn process(x) = x + 1        # 5 → 6
+}
+@layer sanitize {
+    fn process(x) = x * 2        # 6 → 12
+}
+
+process(5)   # → 12
+```
+
+Use `chain` for **transformation pipelines** — each layer applies a step.
+
+### `collect`
+
+Every layer that defines the function is called with the same arguments. The results are returned as a list (top layer first).
+
+```layer
+@layers [core, extra] blend: collect
+
+@layer core  { fn tag(x) = "core"  }
+@layer extra { fn tag(x) = "extra" }
+
+tag("x")   # → ["extra", "core"]
+```
+
+Use `collect` when multiple layers should **all contribute** — validators, event handlers, feature collectors.
+
+### `fallback`
+
+Layers are tried top → bottom. The first result that is not `data.None()` wins. Requires the `data` layer.
+
+```layer
+@layers [core, data, cache] blend: fallback
+
+@layer cache {
+    fn fetch(key) = data.None()            # cache miss → try next layer
+}
+@layer core {
+    fn fetch(key) = data.Some("from_db")   # database hit
+}
+
+fetch("mykey")   # → Some("from_db")
+```
+
+When the cache has a result:
+
+```layer
+@layer cache {
+    fn fetch(key) = data.Some("cached!")   # returns immediately
+}
+fetch("mykey")   # → Some("cached!")
+```
+
+Use `fallback` for **caching**, **feature flags**, or any **try-first** pattern.
+
+### Notes
+
+- Explicit layer access (`core.factorial`) always bypasses blend mode.
+- Unknown blend modes produce a **parse error** before the program runs.
+
 ## Examples
 
 ### Fibonacci Sequence
@@ -343,7 +450,9 @@ layer> help
 1. **Keep layers focused**: Each layer should have a single concern
 2. **Use core for logic**: Put pure algorithms in the core layer
 3. **Layer for aspects**: Use layers for cross-cutting concerns (logging, UI, etc.)
-4. **Explicit is better**: Use `core.function()` when you want to bypass upper layers
+4. **Explicit is better**: Use `core.function()` when you want to bypass layer resolution entirely
 5. **Think in compositions**: Build complex behavior by stacking simple layers
+6. **Use guard clauses instead of nested ifs**: `| n when n < 0 -> ...` is clearer than nested conditionals
+7. **Choose blend modes intentionally**: `fallback` for caching, `chain` for pipelines, `collect` when all layers matter
 
 Happy coding with Layer! 🎨

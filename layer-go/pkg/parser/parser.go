@@ -153,9 +153,28 @@ func (p *Parser) parseLayersDirective() (*ast.LayersDirective, error) {
 		return nil, err
 	}
 
+	// Optional blend mode: blend: <mode>
+	var blendMode string
+	if p.current().Type == lexer.IDENTIFIER && p.current().Value != nil && p.current().Value.(string) == "blend" {
+		p.advance() // consume "blend"
+		if _, err := p.expect(lexer.COLON); err != nil {
+			return nil, err
+		}
+		modeToken, err := p.expect(lexer.IDENTIFIER)
+		if err != nil {
+			return nil, err
+		}
+		blendMode = modeToken.Value.(string)
+		validModes := map[string]bool{"override": true, "chain": true, "collect": true, "fallback": true}
+		if !validModes[blendMode] {
+			return nil, p.error(fmt.Sprintf("unknown blend mode '%s': must be override, chain, collect, or fallback", blendMode))
+		}
+	}
+
 	return &ast.LayersDirective{
 		Base:       ast.Base{Line: start.Line, Column: start.Column},
 		LayerNames: layerNames,
+		BlendMode:  blendMode,
 	}, nil
 }
 
@@ -343,6 +362,16 @@ func (p *Parser) parseMatch() (*ast.Match, error) {
 			return nil, err
 		}
 
+		// Optional guard: when <expr>
+		var guard ast.Node
+		if p.current().Type == lexer.IDENTIFIER && p.current().Value != nil && p.current().Value.(string) == "when" {
+			p.advance() // consume "when"
+			guard, err = p.parseExpression()
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		if _, err := p.expect(lexer.ARROW); err != nil {
 			return nil, err
 		}
@@ -355,6 +384,7 @@ func (p *Parser) parseMatch() (*ast.Match, error) {
 		cases = append(cases, &ast.MatchCase{
 			Base:    ast.Base{Line: pattern.Pos().Line, Column: pattern.Pos().Column},
 			Pattern: pattern,
+			Guard:   guard,
 			Body:    body,
 		})
 	}

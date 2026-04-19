@@ -149,6 +149,7 @@ func (l *LetBinding) String() string {
 type MatchCase struct {
 	Base
 	Pattern Node
+	Guard   Node // Optional: when condition (nil if absent)
 	Body    Node
 }
 
@@ -252,6 +253,7 @@ func (l *LayerDeclaration) String() string {
 type LayersDirective struct {
 	Base
 	LayerNames []string
+	BlendMode  string // "override" (default), "chain", "collect", "fallback"
 }
 
 func (l *LayersDirective) String() string {
