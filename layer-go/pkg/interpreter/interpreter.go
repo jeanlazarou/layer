@@ -381,6 +381,45 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 
 		return nil, i.error(node, fmt.Sprintf("no pattern matched for value: %v", value))
 
+	// Introspection expressions
+	case *ast.IntrospectionExpr:
+		switch n.Op {
+		case "which":
+			layerName := i.layerContext.WhichLayer(n.Args[0])
+			if layerName == "" {
+				return nil, i.error(node, fmt.Sprintf("@which: '%s' is not defined in any layer", n.Args[0]))
+			}
+			return layerName, nil
+
+		case "inspect":
+			names, err := i.layerContext.InspectLayer(n.Args[0])
+			if err != nil {
+				return nil, i.error(node, fmt.Sprintf("@inspect: %s", err))
+			}
+			result := make([]interface{}, len(names))
+			for idx, name := range names {
+				result[idx] = name
+			}
+			return result, nil
+
+		case "diff":
+			added, overridden, err := i.layerContext.DiffLayers(n.Args[0], n.Args[1])
+			if err != nil {
+				return nil, i.error(node, fmt.Sprintf("@diff: %s", err))
+			}
+			toIfaceSlice := func(ss []string) []interface{} {
+				out := make([]interface{}, len(ss))
+				for idx, s := range ss {
+					out[idx] = s
+				}
+				return out
+			}
+			return map[string]interface{}{
+				"added":      toIfaceSlice(added),
+				"overridden": toIfaceSlice(overridden),
+			}, nil
+		}
+
 	// Block
 	case *ast.Block:
 		var result interface{}
@@ -597,22 +636,49 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 	return values[0], nil
 }
 
+// SetVar seeds a variable into the interpreter's local environment.
+// Call this before Execute to provide values that @layers conditions can reference.
+func (i *Interpreter) SetVar(name string, value interface{}) {
+	i.localEnv[name] = value
+}
+
 // Execute executes a complete Layer program
 func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
-	// Enable layers
+	// Evaluate conditional @layers directives and activate layers.
+	// disabled tracks layers whose conditions evaluated to false — their
+	// @layer declaration blocks are skipped to prevent them sneaking into
+	// layerOrder via an internal AddLayer call inside Define.
+	disabled := make(map[string]bool)
 	if program.LayersDirective != nil {
 		if program.LayersDirective.BlendMode != "" {
 			i.layerContext.SetBlendMode(program.LayersDirective.BlendMode)
 		}
-		for _, layerName := range program.LayersDirective.LayerNames {
-			if err := i.EnableLayer(layerName); err != nil {
+		for _, entry := range program.LayersDirective.Layers {
+			if entry.Condition != nil {
+				result, err := i.Eval(entry.Condition, i.localEnv)
+				if err != nil {
+					return nil, fmt.Errorf("error evaluating condition for layer '%s': %w", entry.Name, err)
+				}
+				active, ok := result.(bool)
+				if !ok {
+					return nil, fmt.Errorf("condition for layer '%s' must evaluate to a boolean, got %T", entry.Name, result)
+				}
+				if !active {
+					disabled[entry.Name] = true
+					continue
+				}
+			}
+			if err := i.EnableLayer(entry.Name); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	// Evaluate layer declarations
+	// Evaluate layer declarations, skipping disabled layers entirely.
 	for _, layerDecl := range program.LayerDeclarations {
+		if disabled[layerDecl.LayerName] {
+			continue
+		}
 		i.layerContext.SetCurrentLayer(layerDecl.LayerName)
 
 		for _, definition := range layerDecl.Definitions {

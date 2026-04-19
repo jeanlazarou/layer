@@ -287,6 +287,133 @@ In this example:
 - UI layer presents the result
 - Each layer builds on the ones below
 
+## Layer Introspection
+
+Layer has three built-in expressions for inspecting the layer stack at runtime. They all start with `@` and return plain values — you can use them anywhere an expression is valid.
+
+### `@which name` — who provides this?
+
+Returns the name of the layer that would actually run if you called `name(...)`:
+
+```layer
+@layers [core, debug]
+@layer core  { fn fib(n) = n }
+@layer debug { fn fib(n) = n }
+
+@which fib   # → "debug"
+```
+
+Useful for confirming that the right layer is active.
+
+### `@inspect layer` — what's in this layer?
+
+Returns a sorted list of every name defined in the layer (user-defined functions and built-ins):
+
+```layer
+@layers [core]
+@layer core {
+    fn double(x) = x * 2
+    fn triple(x) = x * 3
+}
+
+@inspect core   # → [..., "double", ..., "triple", ...]
+```
+
+### `@diff layerA layerB` — what does B change?
+
+Returns a record with two fields:
+
+- `added` — names in B that A doesn't have
+- `overridden` — names that exist in both
+
+```layer
+@layers [core, cache]
+@layer core  { fn fetch(k) = "db"    }
+@layer cache { fn fetch(k) = "cache"
+               fn evict(k) = "ok"    }
+
+@diff core cache
+# → {added: ["evict"], overridden: ["fetch"]}
+```
+
+### Introspection as expressions
+
+All three return values, so you can use them inside `let` bindings or pass results to functions:
+
+```layer
+@layers [core, debug]
+@layer core  { fn fib(n) = n }
+@layer debug { fn fib(n) = n }
+
+let owner   = @which fib in
+let changes = @diff core debug in
+str_concat("fib is in: ", owner)
+```
+
+## Conditional Layer Activation
+
+Any layer in `@layers` can be given an `if <expr>` guard. If the condition is `false` at startup the layer is **completely excluded** from the stack — as though it was never listed.
+
+### Syntax
+
+```layer
+@layers [core, debug if mode == "development"]
+```
+
+### Literal conditions
+
+```layer
+@layers [core, extra if true]   # extra always active
+@layers [core, extra if false]  # extra never active
+```
+
+### Variable-based feature flags
+
+The most common use is toggling layers based on configuration variables set by the host application (or the REPL via `SetVar`):
+
+```layer
+@layers [core, debug if mode == "development"]
+
+@layer core  { fn run() = "production path" }
+@layer debug { fn run() = "debug path"      }
+
+run()
+# mode = "development"  →  "debug path"
+# mode = "production"   →  "production path"
+```
+
+### Compound conditions
+
+Any expression works, including `and`/`or` and comparisons:
+
+```layer
+@layers [core, verbose if level > 0 and level < 3]
+```
+
+### Mixed conditional and unconditional layers
+
+Unconditional layers are unaffected by the feature:
+
+```layer
+@layers [core, debug if false, ui]
+# Stack after evaluation: ui → core
+# debug is gone — @which, @inspect, and explicit debug.fn all fail
+```
+
+### Non-boolean condition is a runtime error
+
+```layer
+@layers [core, extra if 42]  # ← ERROR: condition must be boolean
+```
+
+### Combining with blend modes
+
+`if` guards and `blend:` can be used together:
+
+```layer
+@layers [core, cache if caching_enabled, data] blend: fallback
+```
+
 ## Layer Blend Modes
 
 By default, the **top layer wins** when multiple layers define the same function (override). You can change this with the `blend:` option on `@layers`:
@@ -470,5 +597,8 @@ layer> help
 5. **Think in compositions**: Build complex behavior by stacking simple layers
 6. **Use guard clauses instead of nested ifs**: `| n when n < 0 -> ...` is clearer than nested conditionals
 7. **Choose blend modes intentionally**: `fallback` for caching, `chain` for pipelines, `collect` when all layers matter
+8. **Use `@which` to debug surprises**: if a function behaves unexpectedly, `@which name` tells you exactly which layer is running it
+9. **Use `@diff` to understand a layer**: before wrapping or overriding, run `@diff lower_layer your_layer` to see what you're changing
+10. **Put feature flags in `@layers`, not inside functions**: `@layers [core, debug if mode == "dev"]` is cleaner than scattering `if mode == "dev"` checks throughout the code
 
 Happy coding with Layer! 🎨

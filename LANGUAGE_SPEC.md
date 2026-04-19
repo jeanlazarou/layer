@@ -23,11 +23,12 @@ A Layer program consists of one or more layers stacked on top of each other. Eac
 
 ### The `@layers` Directive
 
-The `@layers` directive has **three purposes**:
+The `@layers` directive has **four purposes**:
 
 1. **Enable/Disable**: Only layers listed in `@layers [...]` are active
 2. **Set Order**: The order in the list determines search priority
-3. **Set Blend Mode** (optional): Controls how functions defined in multiple layers are combined
+3. **Conditional activation** (optional): Each layer can have an `if <expr>` guard
+4. **Set Blend Mode** (optional): Controls how functions defined in multiple layers are combined
 
 ```layer
 @layers [core, middleware, debug]
@@ -750,6 +751,76 @@ factorial(5)
 ui.render_result(5)
 ```
 
+## Conditional Layer Activation
+
+**Status**: ✅ **Implemented**
+
+Each layer in the `@layers` list can carry an optional `if <expr>` guard. When the condition evaluates to `false` the layer is **completely skipped** — its `@layer` declaration block is never processed and it never appears in the function resolution stack. When it evaluates to `true` the layer is enabled as normal. Omitting the guard is the same as `if true`.
+
+```layer
+@layers [core, debug if mode == "development", perf if level > 2]
+```
+
+### Syntax
+
+```
+@layers [<name> [if <expr>], ...]
+```
+
+- `<expr>` is any Layer expression — identifier, comparison, logical operator, etc.
+- The expression is evaluated **once**, at program start, before any function call.
+- The expression must evaluate to a **boolean**; a non-boolean value is a runtime error.
+
+### Examples
+
+**Literal conditions**
+
+```layer
+@layers [core, extra if true]   # extra always enabled
+@layers [core, extra if false]  # extra always skipped
+```
+
+**Variable-based feature flags**
+
+```layer
+@layers [core, debug if mode == "development"]
+
+@layer core  { fn run() = "core"  }
+@layer debug { fn run() = "debug" }
+
+# With mode = "development":  run() → "debug"
+# With mode = "production":   run() → "core"
+```
+
+**Compound conditions**
+
+```layer
+@layers [core, verbose if level > 0 and level < 3]
+```
+
+**Mixed conditional and unconditional layers**
+
+```layer
+@layers [core, debug if false, ui]
+# debug is skipped entirely; ui is always active
+# function resolution: ui → core
+```
+
+### Semantics
+
+- A disabled layer leaves **no trace** in the layer stack — `@which`, `@inspect`, and explicit layer access (e.g., `debug.fn`) will not find it.
+- Conditions are evaluated in the interpreter's initial environment, so any variable set via the host API (e.g., `SetVar`) is visible.
+- If all conditional layers are disabled, the program continues with only the unconditional layers.
+
+### Use Cases
+
+| Pattern | Example |
+|---|---|
+| Environment flags | `debug if env == "development"` |
+| Feature toggles | `payments if beta_enabled` |
+| Platform detection | `mobile_ui if platform == "ios"` |
+| Threshold tuning | `verbose if log_level > 2` |
+
 ## Layer Blend Modes
 
 **Status**: ✅ **Implemented**
@@ -868,6 +939,85 @@ Unknown blend modes are caught at **parse time**:
 @layers [core] blend: bogus
 # Error: unknown blend mode 'bogus': must be override, chain, collect, or fallback
 ```
+
+## Layer Introspection
+
+**Status**: ✅ **Implemented**
+
+Introspection expressions let you query the live layer stack at runtime. They are first-class expressions — they return values and work anywhere an expression is valid: top-level, inside `let` bindings, inside function bodies.
+
+### `@which name`
+
+Returns the name of the **topmost layer** that currently provides `name`. This is the layer that would actually run if you called `name(...)`.
+
+```layer
+@layers [core, debug]
+@layer core  { fn factorial(n) = n }
+@layer debug { fn factorial(n) = n }
+
+@which factorial   # → "debug"
+```
+
+If the name is not defined in any layer, a runtime error is raised.
+
+### `@inspect layer`
+
+Returns a sorted list of all names defined in the named layer (both user-defined functions and built-ins registered there).
+
+```layer
+@layers [core]
+@layer core {
+    fn add(x, y) = x + y
+    fn sub(x, y) = x - y
+}
+
+@inspect core   # → ["add", "and", "concat", "drop", ..., "sub", ...]
+```
+
+If the layer does not exist, a runtime error is raised.
+
+### `@diff layerA layerB`
+
+Returns a record describing what `layerB` contributes relative to `layerA`:
+
+- `added` — names defined in B but **not** in A
+- `overridden` — names defined in **both** A and B
+
+```layer
+@layers [core, debug]
+@layer core  { fn factorial(n) = n }
+@layer debug { fn factorial(n) = n
+               fn trace(f) = f }
+
+@diff core debug
+# → {added: ["trace"], overridden: ["factorial"]}
+```
+
+If either layer does not exist, a runtime error is raised. The direction is always A → B ("what does B change on top of A?").
+
+### Using introspection as expressions
+
+Because these are expressions, they compose naturally with the rest of the language:
+
+```layer
+let owner = @which factorial in
+str_concat("factorial is provided by: ", owner)
+
+let core_names = @inspect core in
+length(core_names)
+
+let changes = @diff core debug in
+length(changes.overridden)
+```
+
+### Error handling
+
+| Situation | Behaviour |
+|---|---|
+| `@which` on undefined name | Runtime error |
+| `@inspect` on unknown layer | Runtime error |
+| `@diff` with unknown layer | Runtime error |
+| Unknown op (e.g. `@frobnicate`) | Parse error |
 
 ## Layer Purity System
 
@@ -2000,9 +2150,9 @@ debug.log(data.unwrap(username, "No user"))
 ## Execution Model
 
 1. Parse Layer source file
-2. Identify enabled layers
-3. Build layer stack (core always at bottom)
-4. Evaluate each layer's definitions in order
+2. Evaluate `if <expr>` conditions in `@layers`; exclude disabled layers
+3. Build layer stack from the remaining enabled layers (core always at bottom)
+4. Evaluate each enabled layer's definitions in order
 5. Execute main expression with composed layer context
 
 ## File Format
@@ -2018,8 +2168,8 @@ myprogram.layer
 - Module system for organizing large programs
 - Effect system for managing side effects
 - Dependent types
-- Layer introspection (`@which`, `@inspect`, `@diff`)
-- Conditional layer activation (`@layers [core, debug if env == "development"]`)
+- ~~Layer introspection~~ ✅ implemented — see [Layer Introspection](#layer-introspection)
+- ~~Conditional layer activation~~ ✅ implemented — see [Conditional Layer Activation](#conditional-layer-activation)
 - Flatten operation — merge a layer stack into a single resolved layer
 - Layer effect types and purity enforcement (see [Layer Purity System](#layer-purity-system))
 - Hot reloading of individual layers

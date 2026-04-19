@@ -409,6 +409,30 @@ The Photoshop metaphor extends further than just stacking. Photoshop layers have
 
 This is the most direct expression of the Photoshop metaphor in the language. Instead of asking "which layer wins?", you ask "how should the layers *combine*?" That question is architectural and makes intent explicit in the program's opening line.
 
+### Conditional Activation — the layer stack as a runtime decision
+
+Photoshop lets you toggle a layer's visibility at any time. Layer extends this idea to the *beginning* of program execution: each layer in `@layers` can carry an `if <expr>` guard. The guard is evaluated once, before any function runs, and the layer is either in the stack or it isn't — no special casing inside the code:
+
+```layer
+@layers [core, debug if env == "development", perf if tier > 1]
+```
+
+This keeps feature-flag logic at the architectural boundary (the `@layers` declaration) rather than scattered as `if env ==` checks inside individual functions. The result is a program where *which layers exist* is itself a declarative, auditable expression of runtime configuration.
+
+### Introspection — the layer stack as a value
+
+The third pillar of the layer system is **visibility**. You can query the live stack at any point with three expressions:
+
+```layer
+@which factorial      # → "debug"   — which layer currently provides this?
+@inspect debug        # → [...]     — what names does this layer define?
+@diff core debug      # → {added: [...], overridden: [...]}
+```
+
+These are first-class expressions — they return values, compose with `let`, and work anywhere in the program. The goal is to make the layer composition **legible**: you should never have to guess which layer is running or what a layer contributes.
+
+This also gives the visual editor a foundation: the diff view (idea #8 in the roadmap) is a direct UI projection of `@diff`.
+
 ---
 
 ## Effect Management

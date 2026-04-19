@@ -136,13 +136,27 @@ func (p *Parser) parseLayersDirective() (*ast.LayersDirective, error) {
 		return nil, err
 	}
 
-	var layerNames []string
+	var layers []ast.LayerEntry
 	for !p.match(lexer.RBRACKET) {
 		nameToken, err := p.expect(lexer.IDENTIFIER)
 		if err != nil {
 			return nil, err
 		}
-		layerNames = append(layerNames, nameToken.Value.(string))
+
+		// Optional condition: <name> if <expr>
+		var condition ast.Node
+		if p.current().Type == lexer.IDENTIFIER && p.current().Value != nil && p.current().Value.(string) == "if" {
+			p.advance() // consume "if"
+			condition, err = p.parseExpression()
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		layers = append(layers, ast.LayerEntry{
+			Name:      nameToken.Value.(string),
+			Condition: condition,
+		})
 
 		if p.match(lexer.COMMA) {
 			p.advance()
@@ -172,9 +186,9 @@ func (p *Parser) parseLayersDirective() (*ast.LayersDirective, error) {
 	}
 
 	return &ast.LayersDirective{
-		Base:       ast.Base{Line: start.Line, Column: start.Column},
-		LayerNames: layerNames,
-		BlendMode:  blendMode,
+		Base:      ast.Base{Line: start.Line, Column: start.Column},
+		Layers:    layers,
+		BlendMode: blendMode,
 	}, nil
 }
 
@@ -786,7 +800,62 @@ func (p *Parser) parsePrimary() (ast.Node, error) {
 		return first, nil
 	}
 
+	// Introspection expressions: @which name | @inspect layer | @diff layerA layerB
+	if p.match(lexer.AT) {
+		next := p.peek(1)
+		if next.Type == lexer.IDENTIFIER {
+			op := next.Value.(string)
+			if op == "which" || op == "inspect" || op == "diff" {
+				return p.parseIntrospectionExpr()
+			}
+		}
+	}
+
 	return nil, p.error(fmt.Sprintf("unexpected token: %s", token.Type))
+}
+
+// parseIntrospectionExpr parses @which name | @inspect layer | @diff a b
+func (p *Parser) parseIntrospectionExpr() (*ast.IntrospectionExpr, error) {
+	atToken, err := p.expect(lexer.AT)
+	if err != nil {
+		return nil, err
+	}
+
+	opToken, err := p.expect(lexer.IDENTIFIER)
+	if err != nil {
+		return nil, err
+	}
+	op := opToken.Value.(string)
+
+	var args []string
+	switch op {
+	case "which", "inspect":
+		// single identifier argument
+		argToken, err := p.expect(lexer.IDENTIFIER)
+		if err != nil {
+			return nil, err
+		}
+		args = []string{argToken.Value.(string)}
+	case "diff":
+		// two identifier arguments
+		aToken, err := p.expect(lexer.IDENTIFIER)
+		if err != nil {
+			return nil, err
+		}
+		bToken, err := p.expect(lexer.IDENTIFIER)
+		if err != nil {
+			return nil, err
+		}
+		args = []string{aToken.Value.(string), bToken.Value.(string)}
+	default:
+		return nil, p.error(fmt.Sprintf("unknown introspection op '%s': expected which, inspect, or diff", op))
+	}
+
+	return &ast.IntrospectionExpr{
+		Base: ast.Base{Line: atToken.Line, Column: atToken.Column},
+		Op:   op,
+		Args: args,
+	}, nil
 }
 
 // parseListLiteral parses list literal: [1, 2, 3]

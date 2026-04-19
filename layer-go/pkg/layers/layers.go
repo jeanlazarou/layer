@@ -2,6 +2,7 @@ package layers
 
 import (
 	"fmt"
+	"sort"
 )
 
 // LayerContext manages the layer stack and function resolution
@@ -138,6 +139,55 @@ func (lc *LayerContext) LookupAll(name string) []interface{} {
 		}
 	}
 	return values
+}
+
+// WhichLayer returns the name of the topmost layer that defines the given name.
+// Returns "" if not found.
+func (lc *LayerContext) WhichLayer(name string) string {
+	for i := len(lc.layerOrder) - 1; i >= 0; i-- {
+		if _, found := lc.layers[lc.layerOrder[i]][name]; found {
+			return lc.layerOrder[i]
+		}
+	}
+	return ""
+}
+
+// InspectLayer returns a sorted list of all names defined in the named layer.
+// Returns nil if the layer does not exist.
+func (lc *LayerContext) InspectLayer(layerName string) ([]string, error) {
+	layerMap, exists := lc.layers[layerName]
+	if !exists {
+		return nil, fmt.Errorf("layer '%s' not found", layerName)
+	}
+	names := make([]string, 0, len(layerMap))
+	for name := range layerMap {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// DiffLayers computes what layerB adds or overrides relative to layerA.
+// Returns two sorted slices: added (in B but not A) and overridden (in both).
+func (lc *LayerContext) DiffLayers(layerA, layerB string) (added []string, overridden []string, err error) {
+	aMap, aExists := lc.layers[layerA]
+	if !aExists {
+		return nil, nil, fmt.Errorf("layer '%s' not found", layerA)
+	}
+	bMap, bExists := lc.layers[layerB]
+	if !bExists {
+		return nil, nil, fmt.Errorf("layer '%s' not found", layerB)
+	}
+	for name := range bMap {
+		if _, inA := aMap[name]; inA {
+			overridden = append(overridden, name)
+		} else {
+			added = append(added, name)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(overridden)
+	return added, overridden, nil
 }
 
 // String returns a string representation of the layer context

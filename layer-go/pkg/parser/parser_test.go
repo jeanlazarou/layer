@@ -283,8 +283,8 @@ func TestParseCompleteProgram(t *testing.T) {
 		t.Fatal("Expected layers directive")
 	}
 
-	if len(program.LayersDirective.LayerNames) != 2 {
-		t.Errorf("Expected 2 layers, got %d", len(program.LayersDirective.LayerNames))
+	if len(program.LayersDirective.Layers) != 2 {
+		t.Errorf("Expected 2 layers, got %d", len(program.LayersDirective.Layers))
 	}
 
 	// Check layer declarations

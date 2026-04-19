@@ -226,6 +226,22 @@ func (r *RecordPattern) String() string {
 	return "RecordPattern"
 }
 
+// IntrospectionExpr represents a runtime layer query expression.
+// Op is one of "which", "inspect", "diff".
+// Args holds the identifier name(s) the query operates on.
+//   - @which name     → Args = ["name"]
+//   - @inspect layer  → Args = ["layer"]
+//   - @diff a b       → Args = ["a", "b"]
+type IntrospectionExpr struct {
+	Base
+	Op   string
+	Args []string
+}
+
+func (ie *IntrospectionExpr) String() string {
+	return "IntrospectionExpr"
+}
+
 // Operators
 
 type BinaryOp struct {
@@ -261,14 +277,30 @@ func (l *LayerDeclaration) String() string {
 	return "LayerDeclaration"
 }
 
+// LayerEntry is a single entry in @layers: a name and an optional condition.
+// When Condition is nil the layer is always enabled.
+type LayerEntry struct {
+	Name      string
+	Condition Node // nil means unconditional
+}
+
 type LayersDirective struct {
 	Base
-	LayerNames []string
-	BlendMode  string // "override" (default), "chain", "collect", "fallback"
+	Layers    []LayerEntry
+	BlendMode string // "override" (default), "chain", "collect", "fallback"
 }
 
 func (l *LayersDirective) String() string {
 	return "LayersDirective"
+}
+
+// LayerNames returns just the names, preserving order.
+func (l *LayersDirective) LayerNames() []string {
+	names := make([]string, len(l.Layers))
+	for i, e := range l.Layers {
+		names[i] = e.Name
+	}
+	return names
 }
 
 // Program
