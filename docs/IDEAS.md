@@ -153,4 +153,4 @@ Turns the visual editor into a powerful teaching and debugging tool.
 5. **Conditional layer activation** — makes layers dynamic
 6. **Flatten operation** — optimization + understanding
 7. **Effect types on layers** — the deep theoretical work
-8. **Visual editor diff view** — UX complement to introspection
+8. ~~**Visual editor diff view**~~ ✅ implemented — diff pills on selected layer card in LayerStack
