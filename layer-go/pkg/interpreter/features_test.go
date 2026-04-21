@@ -245,6 +245,104 @@ func TestBlendModeFallbackTopSucceeds(t *testing.T) {
 	}
 }
 
+func TestBlendModeChainMultiParam(t *testing.T) {
+	// Partial application semantics: first param is the piped value, remaining params flow through.
+	// core (bottom): scale(x, factor) = x * factor  → scale(3, 10) = 30
+	// transform (top): scale(v, factor) = v + factor → scale(30, 10) = 40
+	// chain result: 40
+	source := `
+	@layers [core, transform] blend: chain
+
+	@layer core {
+		fn scale(x, factor) = x * factor
+	}
+
+	@layer transform {
+		fn scale(v, factor) = v + factor
+	}
+
+	scale(3, 10)
+	`
+	result := mustExecute(t, source)
+	if result != int64(40) {
+		t.Errorf("expected 40, got %v", result)
+	}
+}
+
+func TestBlendModeFallbackAllNone(t *testing.T) {
+	// When all layers return None, fallback returns None (not an error).
+	source := `
+	@layers [core, data, a, b] blend: fallback
+
+	@layer core {
+		fn fetch(k) = data.None()
+	}
+
+	@layer a {
+		fn fetch(k) = data.None()
+	}
+
+	@layer b {
+		fn fetch(k) = data.None()
+	}
+
+	fetch("x")
+	`
+	result := mustExecute(t, source)
+	m, ok := result.(map[string]interface{})
+	if !ok || m["type"] != "None" {
+		t.Errorf("expected None result, got %v", result)
+	}
+}
+
+func TestBlendModeFallbackTopErrorDegradeToNone(t *testing.T) {
+	// When the top layer errors, fallback tries the next layer.
+	// Here: broken errors, core returns None → result is None (not an error).
+	source := `
+	@layers [core, data, broken] blend: fallback
+
+	@layer core {
+		fn fetch(k) = data.None()
+	}
+
+	@layer broken {
+		fn fetch(k) = undefined_fn(k)
+	}
+
+	fetch("x")
+	`
+	result := mustExecute(t, source)
+	m, ok := result.(map[string]interface{})
+	if !ok || m["type"] != "None" {
+		t.Errorf("expected None result, got %v", result)
+	}
+}
+
+func TestBlendModeFallbackAllErrored(t *testing.T) {
+	// When ALL layers error, fallback returns the last error directly
+	// (no re-call of the bottom layer).
+	source := `
+	@layers [core, broken] blend: fallback
+
+	@layer core {
+		fn fetch(k) = undefined_bottom(k)
+	}
+
+	@layer broken {
+		fn fetch(k) = undefined_top(k)
+	}
+
+	fetch("x")
+	`
+	tokens, _ := lexer.Tokenize(source)
+	program, _ := parser.Parse(tokens)
+	interp := NewInterpreter()
+	_, err := interp.Execute(program)
+	if err == nil {
+		t.Error("expected error when all layers error, got nil")
+	}
+}
+
 // ── Invalid blend mode ────────────────────────────────────────────────────────
 
 func TestBlendModeInvalidIsParseError(t *testing.T) {

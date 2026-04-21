@@ -445,7 +445,37 @@ The result is piped through every layer that defines the function, from bottom t
 process(5)   # → 12
 ```
 
-Use `chain` for **transformation pipelines** — each layer applies a step.
+#### Multi-param functions: the first parameter is the pipeline slot
+
+When your function has more than one parameter, `chain` uses **partial application**:
+
+- The **first parameter** receives the piped value (what came out of the layer below).
+- **All other parameters** are forwarded unchanged from the original call to every layer.
+
+This means every layer can share the same signature — only the first argument changes as it flows up the stack:
+
+```layer
+@layers [core, normalize, clamp] blend: chain
+
+@layer core {
+    fn scale(value, factor) = value * factor
+    # called with original args: scale(3, 10) → 30
+}
+@layer normalize {
+    fn scale(value, factor) = value / factor
+    # value=30 (piped), factor=10 (original context) → 3.0
+}
+@layer clamp {
+    fn scale(value, factor) = if value > 1.0 then 1.0 else value
+    # value=3.0 (piped), factor=10 (still available) → 1.0
+}
+
+scale(3, 10)   # core: 30 → normalize: 3.0 → clamp: 1.0
+```
+
+Think of `chain` as partially applying the original call: the **first parameter flows**, all others are **read-only context** shared by every layer in the pipeline.
+
+Use `chain` for **transformation pipelines** — each layer applies a step, and all layers have access to the original call context.
 
 ### `collect`
 
@@ -596,7 +626,7 @@ layer> help
 4. **Explicit is better**: Use `core.function()` when you want to bypass layer resolution entirely
 5. **Think in compositions**: Build complex behavior by stacking simple layers
 6. **Use guard clauses instead of nested ifs**: `| n when n < 0 -> ...` is clearer than nested conditionals
-7. **Choose blend modes intentionally**: `fallback` for caching, `chain` for pipelines, `collect` when all layers matter
+7. **Choose blend modes intentionally**: `fallback` for caching, `chain` for pipelines, `collect` when all layers matter — and in `chain`, design your first parameter as the "pipeline value" and the rest as shared context
 8. **Use `@which` to debug surprises**: if a function behaves unexpectedly, `@which name` tells you exactly which layer is running it
 9. **Use `@diff` to understand a layer**: before wrapping or overriding, run `@diff lower_layer your_layer` to see what you're changing
 10. **Put feature flags in `@layers`, not inside functions**: `@layers [core, debug if mode == "dev"]` is cleaner than scattering `if mode == "dev"` checks throughout the code

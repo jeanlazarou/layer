@@ -584,13 +584,18 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 	case "chain":
 		// Pipe result from bottom layer up through each higher layer.
 		// values[0] = top layer, values[len-1] = bottom layer.
+		// Partial application semantics: each upper layer is called with (result, args[1], args[2], …).
+		// The first parameter is always the piped value; remaining parameters are forwarded
+		// unchanged from the original call, so multi-param functions work naturally.
 		return func(args ...interface{}) (interface{}, error) {
 			result, err := callValue(values[len(values)-1], args...)
 			if err != nil {
 				return nil, err
 			}
 			for j := len(values) - 2; j >= 0; j-- {
-				result, err = callValue(values[j], result)
+				// Replace the first arg with the piped result; keep the rest.
+				chainArgs := append([]interface{}{result}, args[1:]...)
+				result, err = callValue(values[j], chainArgs...)
 				if err != nil {
 					return nil, err
 				}
@@ -614,22 +619,27 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 
 	case "fallback":
 		// Try from top layer down; return first result that is not None.
+		// Priority: non-None result > None result > error.
 		return func(args ...interface{}) (interface{}, error) {
-			var lastResult interface{}
+			var lastNone interface{}
+			var lastErr error
 			for _, val := range values {
 				res, err := callValue(val, args...)
 				if err != nil {
+					lastErr = err
 					continue
 				}
 				if !isNoneValue(res) {
 					return res, nil
 				}
-				lastResult = res
+				lastNone = res
 			}
-			if lastResult != nil {
-				return lastResult, nil
+			// At least one layer returned None (prefer that over an error).
+			if lastNone != nil {
+				return lastNone, nil
 			}
-			return callValue(values[len(values)-1], args...)
+			// All layers errored — return the last error directly.
+			return nil, lastErr
 		}, nil
 	}
 

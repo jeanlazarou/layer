@@ -399,15 +399,17 @@ The Photoshop metaphor extends further than just stacking. Photoshop layers have
 | Mode | What it does |
 |---|---|
 | `override` | Top layer wins — the default, for decoration/wrapping |
-| `chain` | Result is piped bottom → top through every layer |
+| `chain` | Result piped bottom → top; first param flows, extra params are shared context |
 | `collect` | All layers contribute; results gathered into a list |
-| `fallback` | Top layer first; if it returns `None`, try the next |
+| `fallback` | Top layer first; if it returns `None` (or errors), try the next |
 
 ```layer
 @layers [core, cache, data] blend: fallback
 ```
 
 This is the most direct expression of the Photoshop metaphor in the language. Instead of asking "which layer wins?", you ask "how should the layers *combine*?" That question is architectural and makes intent explicit in the program's opening line.
+
+`chain` carries an especially deep idea: the **first parameter is the pipeline slot** and every additional parameter is **context forwarded unchanged** to all layers. A three-layer chain of `transform(value, config)` all share the same `config` — only `value` evolves. This is partial application expressed as layer composition: the original call seeds the pipeline, and each layer refines the result while staying aware of the original call context.
 
 ### Conditional Activation — the layer stack as a runtime decision
 

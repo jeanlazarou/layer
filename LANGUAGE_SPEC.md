@@ -836,7 +836,7 @@ By default, when a function is defined in multiple layers, the **top layer wins*
 | Mode | Behaviour | Best for |
 |---|---|---|
 | `override` (default) | Top layer's version wins | Wrapping / decoration patterns |
-| `chain` | Result is piped bottom → top through every layer that defines the function | Transformations, middleware pipelines |
+| `chain` | Result piped bottom → top; first param is the pipeline slot, extra params forwarded as context | Transformations, middleware pipelines |
 | `collect` | Every layer's version is called; results returned as a list (top → bottom) | Gathering contributions from all layers |
 | `fallback` | Top layer first; if it returns `None`, try the next layer down | Optional caching, feature flags |
 
@@ -874,7 +874,42 @@ Each layer that defines the function is called in turn, bottom → top. The outp
 process(5)  # → core.process(5) = 6 → transform.process(6) = 12
 ```
 
-Useful for **transformation pipelines** where each layer applies a step.
+#### Partial application semantics: the first parameter is the pipeline slot
+
+When a function has **multiple parameters**, `chain` uses **partial application**:
+
+- The **bottom layer** is called with **all original arguments**.
+- Each **upper layer** is called with the **piped result as its first argument**, and the **remaining original arguments forwarded unchanged**.
+
+The first parameter is always the "pipeline slot" — the value flowing through the chain. All other parameters are fixed context that every layer in the chain shares.
+
+```layer
+@layers [core, clamp, round] blend: chain
+
+@layer core {
+    fn scale(value, factor) = value * factor   # scale(3, 10) = 30
+}
+@layer clamp {
+    fn scale(value, factor) = if value > factor * 9 then factor * 9 else value
+    #                                 ↑ piped from core              ↑ original factor=10 forwarded
+    # scale(30, 10) → 30 > 90? no → 30
+}
+@layer round {
+    fn scale(value, factor) = value - (value - factor) * 0
+    # receives (30, 10) — value=30 piped, factor=10 still available
+}
+
+scale(3, 10)
+# core:  scale(3, 10)  = 30
+# clamp: scale(30, 10) = 30   (30 ≤ 90, passes through)
+# round: scale(30, 10) = 30
+```
+
+This means every layer in the chain can have the **same signature** as the bottom layer. The first parameter changes (it carries the pipeline value); the rest stay the same. Think of it as: the pipeline partially applies the bottom layer, then each upper layer refines the result while still having access to the original call context.
+
+**Rule**: in `chain` mode, the first parameter is always the flowing value. Remaining parameters are read-only context shared by all layers.
+
+Useful for **transformation pipelines** where each layer applies a step and may need the original call context.
 
 ### `collect`
 
@@ -917,6 +952,8 @@ When the cache has a value:
 
 fetch("mykey")  # → Some("from_cache") — core is never called
 ```
+
+**Error behaviour**: if a layer errors (calls an undefined function, etc.), it is skipped and the next layer down is tried. If all layers return `None`, `None` is returned. If all layers error, the last error is returned. A layer that succeeds with `None` always takes precedence over a layer that errored.
 
 Useful for **layered caching**, **feature flags**, or any **try-first pattern**.
 
