@@ -525,6 +525,80 @@ Use `fallback` for **caching**, **feature flags**, or any **try-first** pattern.
 - Explicit layer access (`core.factorial`) always bypasses blend mode.
 - Unknown blend modes produce a **parse error** before the program runs.
 
+## Partial Application
+
+Use `?` in any argument position to create a partially applied function on the spot. The call is transformed into a lambda at parse time — no special runtime machinery needed.
+
+### Basic usage
+
+```layer
+@layers [core]
+
+@layer core {
+    fn add(x, y)      = x + y
+    fn multiply(x, y) = x * y
+}
+
+let add5    = add(5, ?)    in   # fixes x=5, leaves y open
+let double  = multiply(2, ?) in   # fixes x=2, leaves y open
+
+add5(3)     # → 8
+double(7)   # → 14
+```
+
+### Hole in any position
+
+```layer
+let addTo10 = add(?, 10) in   # leaves x open, fixes y=10
+addTo10(32)  # → 42
+```
+
+### With higher-order functions
+
+This is where partial application really pays off — no need for verbose inline lambdas:
+
+```layer
+# Without partial application:
+map(fn(x) = add(1, x), [10, 20, 30])
+
+# With partial application:
+map(add(1, ?), [10, 20, 30])   # → [11, 21, 31]
+
+filter(lt(?, 5), [1, 3, 7, 2, 8])   # → [1, 3, 2]
+```
+
+### Multiple holes
+
+Each `?` becomes a separate parameter:
+
+```layer
+@layer core { fn combine(a, b, c) = a + b + c }
+
+let f = combine(?, 10, ?) in
+f(1, 100)   # → 111
+```
+
+### Chaining
+
+The result of partial application is just a function — it can be partially applied again:
+
+```layer
+@layer core { fn add3(a, b, c) = a + b + c }
+
+add3(1, ?, ?)(2, ?)(3)   # → 6
+```
+
+### Remember: `?` is not `_`
+
+```layer
+match x with
+| _ -> "wildcard in pattern — matches anything"
+
+add(5, ?)   # hole in expression — fills in later
+```
+
+`_` lives in **pattern position**; `?` lives in **expression position**. They never overlap.
+
 ## Examples
 
 ### Fibonacci Sequence
@@ -630,5 +704,6 @@ layer> help
 8. **Use `@which` to debug surprises**: if a function behaves unexpectedly, `@which name` tells you exactly which layer is running it
 9. **Use `@diff` to understand a layer**: before wrapping or overriding, run `@diff lower_layer your_layer` to see what you're changing
 10. **Put feature flags in `@layers`, not inside functions**: `@layers [core, debug if mode == "dev"]` is cleaner than scattering `if mode == "dev"` checks throughout the code
+11. **Use `?` instead of inline lambdas with HOFs**: `map(add(1, ?), list)` is cleaner than `map(fn(x) = add(1, x), list)`
 
 Happy coding with Layer! 🎨

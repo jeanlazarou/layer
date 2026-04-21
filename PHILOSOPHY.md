@@ -336,6 +336,20 @@ add5(3)  # Returns 8
 - Partial application
 - Callback patterns
 
+### 6. Partial Application with `?`
+
+Rather than writing verbose inline lambdas, any argument in a function call can be replaced with `?` to create a partially applied function:
+
+```layer
+# Verbose:
+map(fn(x) = add(1, x), [10, 20, 30])
+
+# With partial application:
+map(add(1, ?), [10, 20, 30])   # → [11, 21, 31]
+```
+
+The `?` is desugared to a lambda at parse time — it is purely syntactic, with zero runtime cost. The choice of `?` (rather than reusing `_`) is deliberate: `_` is the wildcard in pattern position ("I don't care about this value"), while `?` is the hole in expression position ("fill this in later"). Same visual weight, distinct semantics, no ambiguity.
+
 ---
 
 ## The Layer System

@@ -154,6 +154,73 @@ false
 (1, "hello", true)
 ```
 
+### Partial Application
+
+**Status**: ✅ **Implemented**
+
+Any function call argument can be replaced with `?` to produce a partially applied function. The call is desugared at **parse time** into a lambda — no runtime overhead, no new evaluation rules.
+
+```layer
+fn add(x, y) = x + y
+
+let add5   = add(5, ?) in   # fn(__h0) = add(5, __h0)
+let addTo3 = add(?, 3) in   # fn(__h0) = add(__h0, 3)
+
+add5(3)    # → 8
+addTo3(5)  # → 8
+```
+
+#### Multiple holes
+
+Each `?` becomes a separate parameter, left to right:
+
+```layer
+fn combine(a, b, c) = a + b + c
+
+let f = combine(?, 10, ?) in   # fn(__h0, __h1) = combine(__h0, 10, __h1)
+f(1, 100)  # → 111
+```
+
+#### With higher-order functions
+
+Partial application composes naturally with `map`, `filter`, and `fold`:
+
+```layer
+map(add(1, ?),   [10, 20, 30])      # → [11, 21, 31]
+filter(lt(?, 5), [1, 3, 7, 2, 8])  # → [1, 3, 2]
+```
+
+#### Chained partial application
+
+The result of a partial application can itself be partially applied:
+
+```layer
+fn add3(a, b, c) = a + b + c
+
+let step1 = add3(1, ?, ?) in   # 2-param function
+let step2 = step1(2, ?)    in   # 1-param function
+step2(3)                         # → 6
+```
+
+#### Desugaring rule
+
+`f(e1, ?, e2, ?)` is syntactic sugar for a lambda with two fresh parameters:
+
+```layer
+fn(p1, p2) = f(e1, p1, e2, p2)
+```
+
+The generated parameter names are internal to the parser and begin with a null byte — a character the lexer cannot produce from source text. They are structurally impossible to type, so there is no risk of conflict with any user-defined name.
+
+#### `?` vs `_`
+
+| Symbol | Meaning | Where valid |
+|---|---|---|
+| `_` | Wildcard — match anything, discard | Pattern position (inside `match`) |
+| `?` | Hole — fill this argument in later | Expression position (call arguments) |
+
+Same visual weight, distinct roles, never appear in the same syntactic position.
+
 ### Pattern Matching
 
 Pattern matching is the primary control flow mechanism. Cases are tried in order; the first matching case runs.

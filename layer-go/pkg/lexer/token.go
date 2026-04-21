@@ -67,6 +67,7 @@ const (
 	ASSIGN
 	PIPE
 	ELLIPSIS
+	QUESTION // ? — partial application hole
 
 	// Special
 	NEWLINE
@@ -119,6 +120,7 @@ var tokenNames = map[TokenType]string{
 	ASSIGN:     "ASSIGN",
 	PIPE:       "PIPE",
 	ELLIPSIS:   "ELLIPSIS",
+	QUESTION:   "QUESTION",
 	NEWLINE:    "NEWLINE",
 	EOF:        "EOF",
 	COMMENT:    "COMMENT",

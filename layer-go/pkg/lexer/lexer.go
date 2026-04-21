@@ -339,6 +339,7 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 			'=': ASSIGN,
 			'|': PIPE,
 			'@': AT,
+			'?': QUESTION,
 		}
 
 		if tokenType, ok := singleCharTokens[char]; ok {

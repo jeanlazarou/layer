@@ -11,6 +11,7 @@ import (
 type Parser struct {
 	tokens []lexer.Token
 	pos    int
+	gensym int // program-wide counter for generated parameter names (partial application)
 }
 
 // NewParser creates a new parser from a list of tokens
@@ -654,15 +655,31 @@ func (p *Parser) parsePostfix() (ast.Node, error) {
 	for {
 		// Function call
 		if p.match(lexer.LPAREN) {
+			callLine, callCol := expr.Pos().Line, expr.Pos().Column
 			p.advance()
 			var arguments []ast.Node
+			var holeNames []string // gensym names assigned to holes in this call, in order
 
 			for !p.match(lexer.RPAREN) {
-				arg, err := p.parseExpression()
-				if err != nil {
-					return nil, err
+				// Partial application hole: f(a, ?, b) → fn(<gensym>) = f(a, <gensym>, b)
+				// Generated names start with \x00, which the lexer cannot produce from source,
+				// so they are structurally guaranteed to never conflict with user identifiers.
+				if p.match(lexer.QUESTION) {
+					holeToken := p.advance()
+					paramName := fmt.Sprintf("\x00h%d", p.gensym)
+					p.gensym++
+					holeNames = append(holeNames, paramName)
+					arguments = append(arguments, &ast.Identifier{
+						Base: ast.Base{Line: holeToken.Line, Column: holeToken.Column},
+						Name: paramName,
+					})
+				} else {
+					arg, err := p.parseExpression()
+					if err != nil {
+						return nil, err
+					}
+					arguments = append(arguments, arg)
 				}
-				arguments = append(arguments, arg)
 
 				if p.match(lexer.COMMA) {
 					p.advance()
@@ -673,10 +690,21 @@ func (p *Parser) parsePostfix() (ast.Node, error) {
 				return nil, err
 			}
 
-			expr = &ast.FunctionCall{
-				Base:      ast.Base{Line: expr.Pos().Line, Column: expr.Pos().Column},
+			callNode := &ast.FunctionCall{
+				Base:      ast.Base{Line: callLine, Column: callCol},
 				Function:  expr,
 				Arguments: arguments,
+			}
+
+			if len(holeNames) > 0 {
+				// Desugar into a lambda: f(a, ?, b) → fn(\x00h42) = f(a, \x00h42, b)
+				expr = &ast.Lambda{
+					Base:   ast.Base{Line: callLine, Column: callCol},
+					Params: holeNames,
+					Body:   callNode,
+				}
+			} else {
+				expr = callNode
 			}
 
 		} else if p.match(lexer.DOT) {

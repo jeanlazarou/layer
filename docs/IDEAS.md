@@ -154,3 +154,4 @@ Turns the visual editor into a powerful teaching and debugging tool.
 6. **Flatten operation** — optimization + understanding
 7. **Effect types on layers** — the deep theoretical work
 8. ~~**Visual editor diff view**~~ ✅ implemented — diff pills on selected layer card in LayerStack
+9. ~~**Partial application (`?` holes)**~~ ✅ implemented — `f(a, ?)` desugars to a lambda at parse time; `?` vs `_` distinction avoids pattern-match ambiguity
