@@ -23,13 +23,16 @@ if [ $? -eq 0 ]; then
         echo "⚠️  Warning: Could not find wasm_exec.js"
     fi
 
+    # Keep the frontend's embedded copy in sync
+    FRONTEND_PUBLIC="../visual-editor/frontend/public"
+    if [ -d "$FRONTEND_PUBLIC" ]; then
+        cp layer.wasm "$FRONTEND_PUBLIC/"
+        [ -f wasm_exec.js ] && cp wasm_exec.js "$FRONTEND_PUBLIC/"
+        echo "✅ Copied layer.wasm (and wasm_exec.js) to $FRONTEND_PUBLIC"
+    fi
+
     echo ""
     echo "🚀 WASM module ready!"
-    echo ""
-    echo "To use in the frontend:"
-    echo "  1. Copy layer.wasm to visual-editor/frontend/public/"
-    echo "  2. Copy wasm_exec.js to visual-editor/frontend/public/"
-    echo "  3. Load in React using the WASM loader"
 else
     echo "❌ Build failed"
     exit 1

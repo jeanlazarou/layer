@@ -3,8 +3,8 @@ package parser
 import (
 	"testing"
 
-	"github.com/yourusername/layer/pkg/ast"
-	"github.com/yourusername/layer/pkg/lexer"
+	"github.com/jeanlazarou/layer/pkg/ast"
+	"github.com/jeanlazarou/layer/pkg/lexer"
 )
 
 func TestParseNumber(t *testing.T) {

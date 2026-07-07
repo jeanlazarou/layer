@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/yourusername/layer/pkg/layers"
+	"github.com/jeanlazarou/layer/pkg/layers"
 )
 
 // In-memory localStorage for WASM/non-browser environments

@@ -5,7 +5,7 @@ Welcome to Layer! This tutorial will guide you through the basics of programming
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/layer.git
+git clone https://github.com/jeanlazarou/layer.git
 cd layer/layer-go
 go build -o layer ./cmd/layer
 ```

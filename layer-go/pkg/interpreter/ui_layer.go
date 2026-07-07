@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yourusername/layer/pkg/layers"
+	"github.com/jeanlazarou/layer/pkg/layers"
 )
 
 // UIComponent represents a UI component

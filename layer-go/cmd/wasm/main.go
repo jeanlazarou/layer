@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"syscall/js"
 
-	"github.com/yourusername/layer/pkg/interpreter"
-	"github.com/yourusername/layer/pkg/lexer"
-	"github.com/yourusername/layer/pkg/parser"
+	"github.com/jeanlazarou/layer/pkg/interpreter"
+	"github.com/jeanlazarou/layer/pkg/lexer"
+	"github.com/jeanlazarou/layer/pkg/parser"
+	"github.com/jeanlazarou/layer/pkg/sourcefile"
 )
 
 // ExecuteResult represents the result of executing Layer code
@@ -84,24 +85,20 @@ func parseLayerFile(this js.Value, args []js.Value) interface{} {
 
 	source := args[0].String()
 
-	// Extract layer information using text parsing
-	result := map[string]interface{}{
-		"success": true,
+	file, err := sourcefile.Split(source)
+	if err != nil {
+		return mapToJS(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 	}
 
-	// Parse @layers directive
-	enabledLayers := extractEnabledLayers(source)
-	result["enabledLayers"] = enabledLayers
-
-	// Parse @layer blocks
-	layerCode := extractLayerCode(source)
-	result["layers"] = layerCode
-
-	// Extract main expression
-	mainExpr := extractMainExpression(source)
-	result["mainExpression"] = mainExpr
-
-	return mapToJS(result)
+	return mapToJS(map[string]interface{}{
+		"success":        true,
+		"enabledLayers":  file.EnabledLayers,
+		"layers":         file.Layers,
+		"mainExpression": file.MainExpression,
+	})
 }
 
 // formatValue formats a value for display

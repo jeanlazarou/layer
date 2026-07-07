@@ -94,7 +94,7 @@ cd visual-editor/frontend
 npm run build
 npx gh-pages -d dist
 ```
-**URL:** `https://yourusername.github.io/layer`
+**URL:** `https://jeanlazarou.github.io/layer`
 
 ### Netlify
 - Connect repository

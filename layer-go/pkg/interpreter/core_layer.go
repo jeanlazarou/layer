@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/yourusername/layer/pkg/layers"
+	"github.com/jeanlazarou/layer/pkg/layers"
 )
 
 // SetupCoreLayer sets up the core layer with built-in functions and operators

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"syscall/js"
 
-	"github.com/yourusername/layer/pkg/layers"
+	"github.com/jeanlazarou/layer/pkg/layers"
 )
 
 // In-memory localStorage for fallback

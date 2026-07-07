@@ -3,8 +3,8 @@ package interpreter
 import (
 	"testing"
 
-	"github.com/yourusername/layer/pkg/lexer"
-	"github.com/yourusername/layer/pkg/parser"
+	"github.com/jeanlazarou/layer/pkg/lexer"
+	"github.com/jeanlazarou/layer/pkg/parser"
 )
 
 func TestTake(t *testing.T) {
