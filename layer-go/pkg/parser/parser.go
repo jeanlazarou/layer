@@ -3,8 +3,8 @@ package parser
 import (
 	"fmt"
 
-	"github.com/yourusername/layer/pkg/ast"
-	"github.com/yourusername/layer/pkg/lexer"
+	"github.com/jeanlazarou/layer/pkg/ast"
+	"github.com/jeanlazarou/layer/pkg/lexer"
 )
 
 // Parser is a recursive descent parser for the Layer language
@@ -204,6 +204,24 @@ func (p *Parser) parseLayerDeclaration() (*ast.LayerDeclaration, error) {
 		return nil, err
 	}
 
+	// Optional purity annotation: @layer<pure|impure|ui|data|debug> name
+	var purity string
+	if p.match(lexer.LT) {
+		p.advance() // consume <
+		purityToken, err := p.expect(lexer.IDENTIFIER)
+		if err != nil {
+			return nil, err
+		}
+		purity = purityToken.Value.(string)
+		validPurity := map[string]bool{"pure": true, "impure": true, "ui": true, "data": true, "debug": true}
+		if !validPurity[purity] {
+			return nil, p.error(fmt.Sprintf("unknown purity annotation '%s': must be pure, impure, ui, data, or debug", purity))
+		}
+		if _, err := p.expect(lexer.GT); err != nil {
+			return nil, err
+		}
+	}
+
 	nameToken, err := p.expect(lexer.IDENTIFIER)
 	if err != nil {
 		return nil, err
@@ -230,6 +248,7 @@ func (p *Parser) parseLayerDeclaration() (*ast.LayerDeclaration, error) {
 		Base:        ast.Base{Line: start.Line, Column: start.Column},
 		LayerName:   nameToken.Value.(string),
 		Definitions: definitions,
+		Purity:      purity,
 	}, nil
 }
 

@@ -13,13 +13,23 @@ type LayerContext struct {
 	layerOrder   []string // Bottom to top
 	currentLayer string
 	blendMode    string // "override" (default/""), "chain", "collect", "fallback"
+
+	// impureLayers marks layers whose functions may perform effects.
+	// Layers are pure unless marked; ui/data/debug are marked at setup.
+	impureLayers map[string]bool
+	// pureExceptions marks individual functions ("layer.name") that are
+	// pure despite living in an impure layer (e.g. data.Some constructs a
+	// value and performs no I/O).
+	pureExceptions map[string]bool
 }
 
 // NewLayerContext creates a new layer context
 func NewLayerContext() *LayerContext {
 	return &LayerContext{
-		layers:     make(map[string]map[string]interface{}),
-		layerOrder: make([]string, 0),
+		layers:         make(map[string]map[string]interface{}),
+		layerOrder:     make([]string, 0),
+		impureLayers:   make(map[string]bool),
+		pureExceptions: make(map[string]bool),
 	}
 }
 
@@ -34,6 +44,47 @@ func (lc *LayerContext) AddLayer(name string) {
 // SetCurrentLayer sets the layer currently being defined
 func (lc *LayerContext) SetCurrentLayer(name string) {
 	lc.currentLayer = name
+}
+
+// GetCurrentLayer returns the layer currently being defined
+func (lc *LayerContext) GetCurrentLayer() string {
+	return lc.currentLayer
+}
+
+// SetLayerImpure marks a layer as impure (its functions may perform effects)
+func (lc *LayerContext) SetLayerImpure(name string) {
+	lc.impureLayers[name] = true
+}
+
+// IsPureLayer reports whether a layer is pure. Layers are pure unless
+// explicitly marked impure.
+func (lc *LayerContext) IsPureLayer(name string) bool {
+	return !lc.impureLayers[name]
+}
+
+// MarkPureException marks a single function as pure even though it lives in
+// an impure layer.
+func (lc *LayerContext) MarkPureException(layer, name string) {
+	lc.pureExceptions[layer+"."+name] = true
+}
+
+// IsPureFunction reports whether calling layer.name is allowed from pure
+// code: either the layer itself is pure, or the function is an explicit
+// pure exception.
+func (lc *LayerContext) IsPureFunction(layer, name string) bool {
+	return lc.IsPureLayer(layer) || lc.pureExceptions[layer+"."+name]
+}
+
+// LayersDefining returns the names of all layers defining name, from top to
+// bottom of the stack.
+func (lc *LayerContext) LayersDefining(name string) []string {
+	var result []string
+	for i := len(lc.layerOrder) - 1; i >= 0; i-- {
+		if _, found := lc.layers[lc.layerOrder[i]][name]; found {
+			result = append(result, lc.layerOrder[i])
+		}
+	}
+	return result
 }
 
 // Define defines a value in a specific layer

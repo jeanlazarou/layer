@@ -271,6 +271,9 @@ type LayerDeclaration struct {
 	Base
 	LayerName   string
 	Definitions []Node
+	// Purity holds the optional annotation from @layer<pure|impure|ui|data|debug>.
+	// Empty means "use the default" (custom layers are pure by default).
+	Purity string
 }
 
 func (l *LayerDeclaration) String() string {

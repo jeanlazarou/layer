@@ -92,6 +92,61 @@ compute(5)  # Calls debug.compute → middleware.compute → core.compute
 - **Add** new functionality not present in lower layers
 - **Access** any lower layer explicitly (e.g., `core.factorial(n)`)
 
+### Recursion Across Layers (Open Recursion)
+
+**Status**: ✅ **Implemented** (locked in by tests)
+
+Unqualified function calls are **late-bound**: they always resolve through the
+full layer stack at call time, even when the call happens *inside* a lower
+layer's implementation. This is the same "open recursion" model as virtual
+method dispatch in object-oriented languages, and it is what makes the
+wrapping pattern compose with recursive functions.
+
+```layer
+@layers [core, debug]
+
+@layer core {
+  fn fib(n) =
+    match n with
+    | 0 -> 0
+    | 1 -> 1
+    | n -> fib(n - 1) + fib(n - 2)   # Unqualified: re-enters the TOP of the stack
+}
+
+@layer debug {
+  fn fib(n) =
+    let _ = log("fib({n})") in
+      core.fib(n)
+}
+
+fib(4)   # debug.fib logs at EVERY recursion level, not just the first call
+```
+
+Because `core.fib`'s recursive calls are unqualified, each one resolves from
+the top of the stack and re-enters `debug.fib` — the debug layer traces the
+entire recursion tree.
+
+**The escape hatch is explicit qualification.** A layer-qualified call like
+`core.fib(n)` is early-bound to that specific layer and never re-enters
+higher layers on that call. To make a recursive function *immune* to
+overriding (closed recursion), qualify its recursive calls:
+
+```layer
+@layer core {
+  fn fact(n) =
+    match n with
+    | 0 -> 1
+    | n -> n * core.fact(n - 1)   # Qualified: recursion stays inside core
+}
+```
+
+With this definition, a wrapping layer's `fact` runs exactly once for the
+initial call; the recursion proceeds entirely within `core`.
+
+**Rule of thumb**: use unqualified recursion when you want layers above you
+to observe/extend each step (tracing, memoization); use qualified recursion
+when the recursion is an implementation detail that must not be intercepted.
+
 ### Purely Functional
 
 Layer enforces pure functional programming:
@@ -1125,9 +1180,32 @@ length(changes.overridden)
 
 ## Layer Purity System
 
-**Status**: 🚧 **Planned Feature** - Not yet implemented
+**Status**: ✅ **Implemented** (runtime enforcement)
 
 Layer provides a **purity enforcement system** that ensures pure layers cannot call impure functions, preventing accidental side effects in business logic.
+
+**Implementation notes** (how the current runtime enforcement works):
+
+- Enforcement happens **at runtime, when a name is resolved** from inside a
+  pure layer's function. (A future static checker can reuse the same rules.)
+- Custom layers are **pure by default**; opt into effects with
+  `@layer<impure> name { ... }`.
+- `core` is always pure; `ui`, `data`, and `debug` are always impure.
+  Annotating them otherwise is an error.
+- **Pure exceptions**: the data layer's value helpers — `Some`, `None`,
+  `is_some`, `is_none`, `unwrap`, `map_option`, `flatmap_option`,
+  `parse_json`, `to_json` — are callable from pure layers. They construct or
+  transform values and perform no I/O.
+- **Qualified access** (`data.write_file(...)`) from a pure layer to an
+  impure function is always an error.
+- **Unqualified names** follow the open-recursion rule: a call like `fib(n)`
+  from a pure layer is legal as long as *some* pure layer defines the name,
+  even if a higher impure layer intercepts it — the interception is the
+  outer program's choice, not an effect requested by the pure code. A name
+  defined **only** in impure layers (like `log`) is an explicit effect and
+  is rejected.
+- Top-level code (the main expression) runs outside any layer and is
+  unrestricted.
 
 ### Philosophy
 

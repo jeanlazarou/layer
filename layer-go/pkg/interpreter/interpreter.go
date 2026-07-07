@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/yourusername/layer/pkg/ast"
-	"github.com/yourusername/layer/pkg/layers"
+	"github.com/jeanlazarou/layer/pkg/ast"
+	"github.com/jeanlazarou/layer/pkg/layers"
 )
 
 // Closure represents a function closure
@@ -16,6 +16,9 @@ type Closure struct {
 	Body        ast.Node
 	Env         map[string]interface{}
 	Interpreter *Interpreter
+	// Layer is the layer the closure was defined in ("" for top-level
+	// code). Used to enforce purity while the closure body executes.
+	Layer string
 }
 
 // Call invokes the closure with arguments
@@ -101,7 +104,12 @@ func (c *Closure) Call(args ...interface{}) (interface{}, error) {
 		newEnv[param] = args[i]
 	}
 
-	// Evaluate body in new environment
+	// Evaluate body in new environment, tracking which layer is executing
+	// so purity rules can be enforced inside the body.
+	if c.Layer != "" {
+		c.Interpreter.pushExecLayer(c.Layer)
+		defer c.Interpreter.popExecLayer()
+	}
 	return c.Interpreter.Eval(c.Body, newEnv)
 }
 
@@ -114,6 +122,74 @@ func (c *Closure) String() string {
 type Interpreter struct {
 	layerContext *layers.LayerContext
 	localEnv     map[string]interface{} // Local variable environment
+	execLayers   []string               // Stack of layers currently executing
+}
+
+func (i *Interpreter) pushExecLayer(layer string) {
+	i.execLayers = append(i.execLayers, layer)
+}
+
+func (i *Interpreter) popExecLayer() {
+	i.execLayers = i.execLayers[:len(i.execLayers)-1]
+}
+
+// executingLayer returns the layer whose code is currently running, or ""
+// for top-level code (which is unrestricted).
+func (i *Interpreter) executingLayer() string {
+	if len(i.execLayers) == 0 {
+		return ""
+	}
+	return i.execLayers[len(i.execLayers)-1]
+}
+
+// definingLayer returns the layer a closure created right now should belong
+// to: the currently executing layer at runtime, or the layer being declared
+// during the definition phase.
+func (i *Interpreter) definingLayer() string {
+	if layer := i.executingLayer(); layer != "" {
+		return layer
+	}
+	return i.layerContext.GetCurrentLayer()
+}
+
+// checkPurityQualified enforces that pure layers cannot use functions from
+// impure layers via explicit qualification (e.g. data.write_file).
+func (i *Interpreter) checkPurityQualified(node ast.Node, targetLayer, name string) error {
+	caller := i.executingLayer()
+	if caller == "" || !i.layerContext.IsPureLayer(caller) {
+		return nil // top-level and impure layers are unrestricted
+	}
+	if i.layerContext.IsPureFunction(targetLayer, name) {
+		return nil
+	}
+	return i.error(node, fmt.Sprintf(
+		"purity violation: pure layer '%s' cannot call '%s.%s' from impure layer '%s' (mark the layer with @layer<impure> if it needs effects)",
+		caller, targetLayer, name, targetLayer))
+}
+
+// checkPurityUnqualified enforces purity for unqualified names. An
+// unqualified name is allowed from a pure layer as long as SOME layer
+// provides a pure definition: higher impure layers intercepting the call
+// (open recursion) is the outer program's choice, not an effect requested
+// by the pure code. A name defined only in impure layers (e.g. log) is an
+// explicit effect and is rejected.
+func (i *Interpreter) checkPurityUnqualified(node ast.Node, name string) error {
+	caller := i.executingLayer()
+	if caller == "" || !i.layerContext.IsPureLayer(caller) {
+		return nil
+	}
+	defining := i.layerContext.LayersDefining(name)
+	if len(defining) == 0 {
+		return nil // let normal undefined-variable handling report it
+	}
+	for _, layer := range defining {
+		if i.layerContext.IsPureFunction(layer, name) {
+			return nil
+		}
+	}
+	return i.error(node, fmt.Sprintf(
+		"purity violation: pure layer '%s' cannot call '%s', which is only defined in impure layer '%s' (mark the layer with @layer<impure> if it needs effects)",
+		caller, name, defining[0]))
 }
 
 // NewInterpreter creates a new interpreter
@@ -134,13 +210,21 @@ func NewInterpreter() *Interpreter {
 func (i *Interpreter) EnableLayer(layerName string) error {
 	i.layerContext.AddLayer(layerName)
 
-	// Set up built-in layer implementations
+	// Set up built-in layer implementations. The ui, data, and debug layers
+	// are always impure; data's Option/JSON helpers are pure exceptions
+	// (they construct or transform values without performing I/O).
 	switch layerName {
 	case "debug":
+		i.layerContext.SetLayerImpure("debug")
 		SetupDebugLayer(i.layerContext)
 	case "ui":
+		i.layerContext.SetLayerImpure("ui")
 		SetupUILayer(i.layerContext)
 	case "data":
+		i.layerContext.SetLayerImpure("data")
+		for _, name := range []string{"Some", "None", "is_some", "is_none", "unwrap", "map_option", "flatmap_option", "parse_json", "to_json"} {
+			i.layerContext.MarkPureException("data", name)
+		}
 		SetupDataLayer(i.layerContext)
 	}
 
@@ -210,6 +294,10 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			return val, nil
 		}
 
+		if err := i.checkPurityUnqualified(node, n.Name); err != nil {
+			return nil, err
+		}
+
 		// Then in layer context, applying blend mode
 		return i.lookupWithBlend(node, n.Name)
 
@@ -218,6 +306,9 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 		// For now, assume object is a layer name
 		if ident, ok := n.Object.(*ast.Identifier); ok {
 			layerName := ident.Name
+			if err := i.checkPurityQualified(node, layerName, n.Member); err != nil {
+				return nil, err
+			}
 			val, err := i.layerContext.GetLayerValue(layerName, n.Member)
 			if err != nil {
 				return nil, i.error(node, err.Error())
@@ -237,6 +328,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			Body:        n.Body,
 			Env:         envCopy,
 			Interpreter: i,
+			Layer:       i.definingLayer(),
 		}, nil
 
 	case *ast.FunctionDef:
@@ -249,6 +341,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			Body:        n.Body,
 			Env:         envCopy,
 			Interpreter: i,
+			Layer:       i.definingLayer(),
 		}
 		// Store in current layer
 		i.layerContext.Define(n.Name, closure)
@@ -646,6 +739,35 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 	return values[0], nil
 }
 
+// applyPurityAnnotation records a layer's declared purity. Built-in layers
+// have fixed purity: core is always pure; ui, data, and debug are always
+// impure. Custom layers default to pure and may opt into effects with
+// @layer<impure>.
+func (i *Interpreter) applyPurityAnnotation(layerDecl *ast.LayerDeclaration) error {
+	name := layerDecl.LayerName
+	annotation := layerDecl.Purity
+	if annotation == "" {
+		return nil
+	}
+
+	impure := annotation != "pure"
+	switch name {
+	case "core":
+		if impure {
+			return i.error(layerDecl, "the core layer is always pure and cannot be marked impure")
+		}
+	case "ui", "data", "debug":
+		if !impure {
+			return i.error(layerDecl, fmt.Sprintf("the built-in '%s' layer is always impure and cannot be marked pure", name))
+		}
+	default:
+		if impure {
+			i.layerContext.SetLayerImpure(name)
+		}
+	}
+	return nil
+}
+
 // SetVar seeds a variable into the interpreter's local environment.
 // Call this before Execute to provide values that @layers conditions can reference.
 func (i *Interpreter) SetVar(name string, value interface{}) {
@@ -684,6 +806,17 @@ func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
 		}
 	}
 
+	// Apply purity annotations before evaluating any definitions, so that
+	// a layer's purity is known regardless of declaration order.
+	for _, layerDecl := range program.LayerDeclarations {
+		if disabled[layerDecl.LayerName] {
+			continue
+		}
+		if err := i.applyPurityAnnotation(layerDecl); err != nil {
+			return nil, err
+		}
+	}
+
 	// Evaluate layer declarations, skipping disabled layers entirely.
 	for _, layerDecl := range program.LayerDeclarations {
 		if disabled[layerDecl.LayerName] {
@@ -697,6 +830,10 @@ func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
 			}
 		}
 	}
+
+	// Definitions are done; top-level code runs outside any layer so it is
+	// unrestricted by purity rules.
+	i.layerContext.SetCurrentLayer("")
 
 	// Evaluate main expression
 	if program.MainExpression != nil {
