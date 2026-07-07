@@ -1,0 +1,26 @@
+# Blend mode: fallback — cache-over-database lookup
+#
+# With `blend: fallback`, calling fetch(key) tries each layer from top to
+# bottom and returns the first result that is not None:
+#   1. cache.fetch    → data.get(key): Some on hit, None on miss
+#   2. database.fetch → always produces a value
+#
+# The cache layer performs localStorage I/O, so it must be marked impure.
+# The database layer only constructs Option values, which is pure.
+
+@layers [core, data, database, cache] blend: fallback
+
+@layer database {
+    fn fetch(key) = data.Some(str_concat("computed-value-for-", key))
+}
+
+@layer<impure> cache {
+    fn fetch(key) = data.get(key)
+}
+
+let _ = data.set("greeting", "cached-hello") in
+let hit = fetch("greeting") in
+let miss = fetch("something-new") in
+[data.unwrap(hit, "?"), data.unwrap(miss, "?")]
+
+# Result: ["cached-hello", "computed-value-for-something-new"]

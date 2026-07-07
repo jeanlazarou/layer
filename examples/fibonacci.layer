@@ -14,7 +14,7 @@
 @layer debug {
     # Wrap the core fibonacci with logging
     fn fibonacci(n) =
-        let _ = log(str_concat("Computing fib(", str_concat(str_concat(n, ""), ")"))) in
+        let _ = log(str_concat("Computing fib(", str_concat(to_string(n), ")"))) in
             core.fibonacci(n)
 }
 

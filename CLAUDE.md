@@ -17,16 +17,12 @@ The project consists of:
 
 ### Go Interpreter (Core Language)
 
+Note: there is currently **no native CLI** (`cmd/layer` does not exist). The
+interpreter is exercised through Go tests and through the WASM module used
+by the visual editor.
+
 ```bash
-# Build the interpreter
 cd layer-go
-go build -o layer ./cmd/layer
-
-# Run the REPL
-./layer
-
-# Execute a .layer file
-./layer run ../examples/fibonacci.layer
 
 # Run tests
 go test ./...                   # All tests
@@ -34,8 +30,7 @@ go test ./pkg/interpreter       # Specific package
 go test -v ./...                # Verbose output
 go test -cover ./...            # With coverage report
 
-# Build WebAssembly module
-cd layer-go
+# Build WebAssembly module (also copies it into visual-editor/frontend/public/)
 ./build-wasm.sh                 # Outputs layer.wasm
 ```
 
@@ -306,10 +301,12 @@ This is an experimental language exploring novel programming concepts. Current i
 - ✅ Visual editor with Monaco integration
 - ✅ **Interactive UI rendering** - UI layer components render as live, interactive React components
 - ✅ **WebAssembly compilation** - Go implementation compiled to WASM for standalone deployment!
+- ✅ Purity enforcement (runtime): pure layers cannot call impure functions; `@layer<impure>` opts in — see LANGUAGE_SPEC.md "Layer Purity System"
+- ✅ Open recursion semantics specified and test-locked (unqualified calls are late-bound through the stack; `core.f` is the escape hatch)
+- ✅ Blend modes (override, chain, collect, fallback) — see `examples/blend_*.layer`
 - ❌ Type inference (Hindley-Milner specified but not implemented)
 - ❌ Module system
-- ❌ Effect system
-- ❌ Purity enforcement system (planned - see LANGUAGE_SPEC.md)
+- ❌ Effect system (beyond the pure/impure layer split)
 
 ## ✅ WebAssembly Architecture (COMPLETED!)
 

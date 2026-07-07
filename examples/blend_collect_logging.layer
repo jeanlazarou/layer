@@ -1,0 +1,21 @@
+# Blend mode: collect — every layer contributes, results are merged
+#
+# With `blend: collect`, calling notify(msg) invokes EVERY layer that
+# defines notify (top to bottom) and returns all results as a list.
+# This is the "multiple handlers" pattern: several layers each react to
+# the same event without knowing about each other.
+
+@layers [core, audit, console] blend: collect
+
+@layer audit {
+    fn notify(msg) = str_concat("[audit] ", msg)
+}
+
+@layer console {
+    fn notify(msg) = str_concat("[console] ", msg)
+}
+
+notify("user logged in")
+
+# Result: ["[console] user logged in", "[audit] user logged in"]
+# (top layer first, then down the stack)
