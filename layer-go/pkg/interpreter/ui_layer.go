@@ -1,7 +1,9 @@
 package interpreter
 
 import (
+	"encoding/xml"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jeanlazarou/layer/pkg/layers"
@@ -14,36 +16,46 @@ type UIComponent struct {
 	Children []interface{}
 }
 
-// Render renders the component to XML string
+// Render renders the component to XML. Attribute values and text are
+// escaped, and attributes are emitted in sorted order so the output is
+// deterministic.
 func (u *UIComponent) Render(indent int) string {
 	indentStr := strings.Repeat("  ", indent)
-	result := fmt.Sprintf("%s<%s", indentStr, u.Type)
+	var b strings.Builder
+	b.WriteString(indentStr + "<" + u.Type)
 
-	// Add props
-	for key, value := range u.Props {
+	keys := make([]string, 0, len(u.Props))
+	for key := range u.Props {
 		if key != "children" {
-			result += fmt.Sprintf(" %s=\"%v\"", key, value)
+			keys = append(keys, key)
 		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		b.WriteString(" " + key + "=\"" + xmlEscape(Show(u.Props[key])) + "\"")
 	}
 
 	if len(u.Children) == 0 {
-		result += " />"
-		return result
+		b.WriteString(" />")
+		return b.String()
 	}
 
-	result += ">\n"
-
-	// Render children
+	b.WriteString(">\n")
 	for _, child := range u.Children {
 		if comp, ok := child.(*UIComponent); ok {
-			result += comp.Render(indent+1) + "\n"
+			b.WriteString(comp.Render(indent+1) + "\n")
 		} else {
-			result += fmt.Sprintf("%s  %v\n", indentStr, child)
+			b.WriteString(indentStr + "  " + xmlEscape(Show(child)) + "\n")
 		}
 	}
+	b.WriteString(indentStr + "</" + u.Type + ">")
+	return b.String()
+}
 
-	result += fmt.Sprintf("%s</%s>", indentStr, u.Type)
-	return result
+func xmlEscape(s string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
 }
 
 func (u *UIComponent) String() string {

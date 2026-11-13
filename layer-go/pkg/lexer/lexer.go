@@ -8,12 +8,12 @@ import (
 
 // Lexer tokenizes Layer source code
 type Lexer struct {
-	source  string
-	pos     int
-	line    int
-	column  int
-	tokens  []Token
-	runes   []rune
+	source string
+	pos    int
+	line   int
+	column int
+	tokens []Token
+	runes  []rune
 }
 
 // Keywords maps keyword strings to their token types
@@ -145,13 +145,21 @@ func (l *Lexer) readNumber() (Token, error) {
 	return NewToken(NUMBER, value, startLine, startColumn), nil
 }
 
-// readString reads a string literal
+// readString reads a string literal.
+//
+// Double-quoted strings support interpolation: "fib({n}) = {fib(n)}".
+// A '{' starts an interpolation unless it is followed by whitespace, a
+// quote, a backslash, or '}' — so JSON-like text such as "{\"a\": 1}" or
+// "{ }" stays literal. "\{" is always a literal brace. Single-quoted strings never
+// interpolate. A string without interpolation produces a plain STRING
+// token; one with interpolation produces a TEMPLATE token.
 func (l *Lexer) readString() (Token, error) {
 	startLine := l.line
 	startColumn := l.column
 
 	quote := l.advance() // " or '
 	var str strings.Builder
+	var parts []StringPart
 
 	for l.peek(0) != 0 && l.peek(0) != quote {
 		if l.peek(0) == '\\' {
@@ -174,9 +182,23 @@ func (l *Lexer) readString() (Token, error) {
 			default:
 				str.WriteRune(nextChar)
 			}
-		} else {
-			str.WriteRune(l.advance())
+			continue
 		}
+
+		if quote == '"' && l.peek(0) == '{' && startsInterpolation(l.peek(1)) {
+			if str.Len() > 0 {
+				parts = append(parts, StringPart{Text: str.String()})
+				str.Reset()
+			}
+			part, err := l.readInterpolation()
+			if err != nil {
+				return Token{}, err
+			}
+			parts = append(parts, part)
+			continue
+		}
+
+		str.WriteRune(l.advance())
 	}
 
 	if l.peek(0) == 0 {
@@ -184,7 +206,71 @@ func (l *Lexer) readString() (Token, error) {
 	}
 
 	l.advance() // Closing quote
-	return NewToken(STRING, str.String(), startLine, startColumn), nil
+
+	if parts == nil {
+		return NewToken(STRING, str.String(), startLine, startColumn), nil
+	}
+	if str.Len() > 0 {
+		parts = append(parts, StringPart{Text: str.String()})
+	}
+	return NewToken(TEMPLATE, parts, startLine, startColumn), nil
+}
+
+// startsInterpolation reports whether a '{' followed by r opens an
+// interpolation inside a double-quoted string.
+func startsInterpolation(r rune) bool {
+	switch r {
+	case 0, ' ', '\t', '\n', '\r', '"', '\'', '\\', '}':
+		return false
+	}
+	return true
+}
+
+// readInterpolation reads "{expr}" starting at the opening brace and
+// returns the expression source with its position. Nested braces (records)
+// are balanced; single-quoted strings inside are skipped verbatim. Double
+// quotes are rejected because they would end the enclosing string.
+func (l *Lexer) readInterpolation() (StringPart, error) {
+	l.advance() // {
+	part := StringPart{IsExpr: true, Line: l.line, Column: l.column}
+
+	var expr strings.Builder
+	depth := 1
+	for {
+		c := l.peek(0)
+		switch c {
+		case 0:
+			return part, l.error("unterminated interpolation: missing '}'")
+		case '"':
+			return part, l.error("missing '}' to close the interpolation (inside {…}, write strings with single quotes)")
+		case '\'':
+			expr.WriteRune(l.advance())
+			for l.peek(0) != 0 && l.peek(0) != '\'' {
+				if l.peek(0) == '\\' {
+					expr.WriteRune(l.advance())
+				}
+				expr.WriteRune(l.advance())
+			}
+			if l.peek(0) == 0 {
+				return part, l.error("unterminated string inside interpolation")
+			}
+			expr.WriteRune(l.advance())
+			continue
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				l.advance() // closing }
+				part.Expr = expr.String()
+				if strings.TrimSpace(part.Expr) == "" {
+					return part, l.error("empty interpolation {}")
+				}
+				return part, nil
+			}
+		}
+		expr.WriteRune(l.advance())
+	}
 }
 
 // readIdentifier reads an identifier or keyword

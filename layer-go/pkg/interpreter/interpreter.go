@@ -1,17 +1,27 @@
 package interpreter
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
-	"time"
 
 	"github.com/jeanlazarou/layer/pkg/ast"
 	"github.com/jeanlazarou/layer/pkg/layers"
 )
 
-// Closure represents a function closure
+// DefaultMaxCallDepth bounds Layer-level recursion, so runaway recursion
+// reports a normal runtime error instead of exhausting the stack — which,
+// under WebAssembly, would kill the whole runtime and leave the editor
+// unusable until reload. It is 100000 natively and 20000 under WebAssembly
+// (see limits_js.go).
+const DefaultMaxCallDepth = defaultMaxCallDepth
+
+// Closure represents a function value.
 type Closure struct {
+	// Name is the function name for `fn` definitions ("" for lambdas). It
+	// is used in error traces and messages.
+	Name        string
 	Params      []string
 	Body        ast.Node
 	Env         map[string]interface{}
@@ -19,87 +29,49 @@ type Closure struct {
 	// Layer is the layer the closure was defined in ("" for top-level
 	// code). Used to enforce purity while the closure body executes.
 	Layer string
+	// Native, when set, implements the function in Go. Built-ins that
+	// return functions (compose, const, trace, benchmark) use it so their
+	// results are ordinary closures with a known arity.
+	Native func(args ...interface{}) (interface{}, error)
+}
+
+// qualifiedName returns "layer.name" for named closures.
+func (c *Closure) qualifiedName() string {
+	if c.Layer == "" {
+		return c.Name
+	}
+	return c.Layer + "." + c.Name
+}
+
+func (c *Closure) describe() string {
+	if c.Name != "" {
+		return c.qualifiedName()
+	}
+	return "function"
 }
 
 // Call invokes the closure with arguments
 func (c *Closure) Call(args ...interface{}) (interface{}, error) {
 	if len(args) != len(c.Params) {
-		return nil, fmt.Errorf("expected %d arguments, got %d", len(c.Params), len(args))
+		return nil, fmt.Errorf("%s expects %d argument%s, got %d", c.describe(), len(c.Params), plural(len(c.Params)), len(args))
 	}
 
-	// Special handling for const function
-	if c.Body == nil && c.Env["__const_value"] != nil {
-		return c.Env["__const_value"], nil
+	if c.Native != nil {
+		return c.Native(args...)
 	}
 
-	// Special handling for compose function
-	if c.Body == nil && c.Env["__compose_f"] != nil && c.Env["__compose_g"] != nil {
-		f := c.Env["__compose_f"].(*Closure)
-		g := c.Env["__compose_g"].(*Closure)
-
-		// Call g(x)
-		gResult, err := g.Call(args[0])
-		if err != nil {
-			return nil, err
-		}
-
-		// Call f(g(x))
-		return f.Call(gResult)
-	}
-
-	// Special handling for trace function
-	if c.Body == nil && c.Env["__trace_name"] != nil && c.Env["__trace_fn"] != nil {
-		name := fmt.Sprintf("%v", c.Env["__trace_name"])
-		fn := c.Env["__trace_fn"].(*Closure)
-
-		// Log function call
-		argsStr := ""
-		for i, arg := range args {
-			if i > 0 {
-				argsStr += ", "
-			}
-			argsStr += fmt.Sprintf("%v", arg)
-		}
-		fmt.Fprintf(os.Stderr, "[TRACE] %s(%s) called\n", name, argsStr)
-
-		// Call the wrapped function
-		result, err := fn.Call(args...)
-		if err != nil {
-			return nil, err
-		}
-
-		// Log function result
-		fmt.Fprintf(os.Stderr, "[TRACE] %s(%s) = %v\n", name, argsStr, result)
-
-		return result, nil
-	}
-
-	// Special handling for benchmark function
-	if c.Body == nil && c.Env["__benchmark_name"] != nil && c.Env["__benchmark_fn"] != nil {
-		name := fmt.Sprintf("%v", c.Env["__benchmark_name"])
-		fn := c.Env["__benchmark_fn"].(*Closure)
-
-		// Benchmark the function
-		start := time.Now()
-		result, err := fn.Call(args...)
-		elapsed := time.Since(start)
-
-		if err != nil {
-			return nil, err
-		}
-
-		// Log benchmark result
-		fmt.Fprintf(os.Stderr, "[BENCH] %s took %.3fms\n", name, float64(elapsed.Microseconds())/1000.0)
-
-		return result, nil
+	interp := c.Interpreter
+	interp.depth++
+	defer func() { interp.depth-- }()
+	if interp.depth > interp.MaxCallDepth {
+		return nil, fmt.Errorf("maximum call depth (%d) exceeded in %s — runaway recursion?", interp.MaxCallDepth, c.describe())
 	}
 
 	// Create new environment with parameters bound
-	newEnv := make(map[string]interface{})
+	newEnv := make(map[string]interface{}, len(c.Env)+len(c.Params))
 	for k, v := range c.Env {
 		newEnv[k] = v
 	}
-
 	for i, param := range c.Params {
 		newEnv[param] = args[i]
 	}
@@ -107,15 +79,61 @@ func (c *Closure) Call(args ...interface{}) (interface{}, error) {
 	// Evaluate body in new environment, tracking which layer is executing
 	// so purity rules can be enforced inside the body.
 	if c.Layer != "" {
-		c.Interpreter.pushExecLayer(c.Layer)
-		defer c.Interpreter.popExecLayer()
+		interp.pushExecLayer(c.Layer)
+		defer interp.popExecLayer()
 	}
-	return c.Interpreter.Eval(c.Body, newEnv)
+	var result interface{}
+	var err error
+	if stackHopEvery > 0 && interp.depth%stackHopEvery == 0 {
+		result, err = interp.evalOnFreshGoroutine(c.Body, newEnv)
+	} else {
+		result, err = interp.Eval(c.Body, newEnv)
+	}
+	if err != nil && c.Name != "" {
+		var rerr *RuntimeError
+		if errors.As(err, &rerr) {
+			rerr.addFrame(c.qualifiedName())
+		}
+	}
+	return result, err
+}
+
+// evalOnFreshGoroutine evaluates node on a new goroutine and waits for it.
+// Under WebAssembly, parking the current goroutine unwinds the browser's
+// native call stack, so the new goroutine starts with an empty one. The
+// interpreter is not used concurrently: the caller is blocked meanwhile.
+func (i *Interpreter) evalOnFreshGoroutine(node ast.Node, env map[string]interface{}) (interface{}, error) {
+	type outcome struct {
+		val interface{}
+		err error
+	}
+	ch := make(chan outcome, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- outcome{nil, fmt.Errorf("interpreter panic: %v", r)}
+			}
+		}()
+		val, err := i.Eval(node, env)
+		ch <- outcome{val, err}
+	}()
+	out := <-ch
+	return out.val, out.err
 }
 
 // String returns a string representation
 func (c *Closure) String() string {
+	if c.Name != "" {
+		return fmt.Sprintf("<function %s(%s)>", c.qualifiedName(), stringJoin(c.Params, ", "))
+	}
 	return fmt.Sprintf("<function(%s)>", stringJoin(c.Params, ", "))
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // Interpreter interprets Layer programs
@@ -123,6 +141,29 @@ type Interpreter struct {
 	layerContext *layers.LayerContext
 	localEnv     map[string]interface{} // Local variable environment
 	execLayers   []string               // Stack of layers currently executing
+	depth        int                    // current Layer call depth
+
+	// MaxCallDepth bounds recursion; see DefaultMaxCallDepth.
+	MaxCallDepth int
+
+	// LogSink receives every line produced by log/trace/print/... as it is
+	// emitted. NewInterpreter sets it to write to stderr; set it to nil to
+	// only collect lines (see Logs).
+	LogSink func(line string)
+	logs    []string
+}
+
+// emit records a log line and forwards it to LogSink.
+func (i *Interpreter) emit(line string) {
+	i.logs = append(i.logs, line)
+	if i.LogSink != nil {
+		i.LogSink(line)
+	}
+}
+
+// Logs returns every line emitted so far by log, trace, print, etc.
+func (i *Interpreter) Logs() []string {
+	return i.logs
 }
 
 func (i *Interpreter) pushExecLayer(layer string) {
@@ -155,16 +196,10 @@ func (i *Interpreter) definingLayer() string {
 // checkPurityQualified enforces that pure layers cannot use functions from
 // impure layers via explicit qualification (e.g. data.write_file).
 func (i *Interpreter) checkPurityQualified(node ast.Node, targetLayer, name string) error {
-	caller := i.executingLayer()
-	if caller == "" || !i.layerContext.IsPureLayer(caller) {
-		return nil // top-level and impure layers are unrestricted
+	if msg := i.purityViolationQualified(i.executingLayer(), targetLayer, name); msg != "" {
+		return i.error(node, msg)
 	}
-	if i.layerContext.IsPureFunction(targetLayer, name) {
-		return nil
-	}
-	return i.error(node, fmt.Sprintf(
-		"purity violation: pure layer '%s' cannot call '%s.%s' from impure layer '%s' (mark the layer with @layer<impure> if it needs effects)",
-		caller, targetLayer, name, targetLayer))
+	return nil
 }
 
 // checkPurityUnqualified enforces purity for unqualified names. An
@@ -174,22 +209,44 @@ func (i *Interpreter) checkPurityQualified(node ast.Node, targetLayer, name stri
 // by the pure code. A name defined only in impure layers (e.g. log) is an
 // explicit effect and is rejected.
 func (i *Interpreter) checkPurityUnqualified(node ast.Node, name string) error {
-	caller := i.executingLayer()
+	if msg := i.purityViolationUnqualified(i.executingLayer(), name); msg != "" {
+		return i.error(node, msg)
+	}
+	return nil
+}
+
+// purityViolationQualified returns a violation message, or "" when caller
+// may reference targetLayer.name. Shared by the runtime and static checks.
+func (i *Interpreter) purityViolationQualified(caller, targetLayer, name string) string {
 	if caller == "" || !i.layerContext.IsPureLayer(caller) {
-		return nil
+		return "" // top-level and impure layers are unrestricted
+	}
+	if i.layerContext.IsPureFunction(targetLayer, name) {
+		return ""
+	}
+	return fmt.Sprintf(
+		"purity violation: pure layer '%s' cannot call '%s.%s' from impure layer '%s' (mark the layer with @layer<impure> if it needs effects)",
+		caller, targetLayer, name, targetLayer)
+}
+
+// purityViolationUnqualified is the unqualified counterpart of
+// purityViolationQualified.
+func (i *Interpreter) purityViolationUnqualified(caller, name string) string {
+	if caller == "" || !i.layerContext.IsPureLayer(caller) {
+		return ""
 	}
 	defining := i.layerContext.LayersDefining(name)
 	if len(defining) == 0 {
-		return nil // let normal undefined-variable handling report it
+		return "" // let undefined-name handling report it
 	}
 	for _, layer := range defining {
 		if i.layerContext.IsPureFunction(layer, name) {
-			return nil
+			return ""
 		}
 	}
-	return i.error(node, fmt.Sprintf(
+	return fmt.Sprintf(
 		"purity violation: pure layer '%s' cannot call '%s', which is only defined in impure layer '%s' (mark the layer with @layer<impure> if it needs effects)",
-		caller, name, defining[0]))
+		caller, name, defining[0])
 }
 
 // NewInterpreter creates a new interpreter
@@ -197,11 +254,13 @@ func NewInterpreter() *Interpreter {
 	interp := &Interpreter{
 		layerContext: layers.NewLayerContext(),
 		localEnv:     make(map[string]interface{}),
+		MaxCallDepth: DefaultMaxCallDepth,
+		LogSink:      func(line string) { fmt.Fprintln(os.Stderr, line) },
 	}
 
 	// Set up core layer
 	interp.layerContext.AddLayer("core")
-	SetupCoreLayer(interp.layerContext)
+	SetupCoreLayer(interp.layerContext, interp)
 
 	return interp
 }
@@ -216,7 +275,7 @@ func (i *Interpreter) EnableLayer(layerName string) error {
 	switch layerName {
 	case "debug":
 		i.layerContext.SetLayerImpure("debug")
-		SetupDebugLayer(i.layerContext)
+		SetupDebugLayer(i.layerContext, i)
 	case "ui":
 		i.layerContext.SetLayerImpure("ui")
 		SetupUILayer(i.layerContext)
@@ -231,10 +290,20 @@ func (i *Interpreter) EnableLayer(layerName string) error {
 	return nil
 }
 
-// error raises an interpreter error
+// error builds a positioned runtime error for node.
 func (i *Interpreter) error(node ast.Node, message string) error {
 	pos := node.Pos()
-	return fmt.Errorf("runtime error at %d:%d: %s", pos.Line, pos.Column, message)
+	return &RuntimeError{Line: pos.Line, Column: pos.Column, Message: message}
+}
+
+// wrap attaches node's position to err unless err already carries one
+// (errors raised deeper in the program keep their original location).
+func (i *Interpreter) wrap(node ast.Node, err error) error {
+	var rerr *RuntimeError
+	if errors.As(err, &rerr) {
+		return err
+	}
+	return i.error(node, err.Error())
 }
 
 // Eval evaluates an AST node
@@ -243,8 +312,8 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 		env = i.localEnv
 	}
 
-	// Literals
 	switch n := node.(type) {
+	// Literals
 	case *ast.NumberLiteral:
 		return n.Value, nil
 
@@ -253,6 +322,17 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 
 	case *ast.BooleanLiteral:
 		return n.Value, nil
+
+	case *ast.InterpolatedString:
+		var out []byte
+		for _, part := range n.Parts {
+			val, err := i.Eval(part, env)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, Show(val)...)
+		}
+		return string(out), nil
 
 	case *ast.ListLiteral:
 		elements := make([]interface{}, len(n.Elements))
@@ -303,7 +383,6 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 
 	// Member access (layer.function)
 	case *ast.MemberAccess:
-		// For now, assume object is a layer name
 		if ident, ok := n.Object.(*ast.Identifier); ok {
 			layerName := ident.Name
 			if err := i.checkPurityQualified(node, layerName, n.Member); err != nil {
@@ -319,7 +398,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 
 	// Functions
 	case *ast.Lambda:
-		envCopy := make(map[string]interface{})
+		envCopy := make(map[string]interface{}, len(env))
 		for k, v := range env {
 			envCopy[k] = v
 		}
@@ -332,11 +411,12 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 		}, nil
 
 	case *ast.FunctionDef:
-		envCopy := make(map[string]interface{})
+		envCopy := make(map[string]interface{}, len(env))
 		for k, v := range env {
 			envCopy[k] = v
 		}
 		closure := &Closure{
+			Name:        n.Name,
 			Params:      n.Params,
 			Body:        n.Body,
 			Env:         envCopy,
@@ -344,13 +424,19 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			Layer:       i.definingLayer(),
 		}
 		// Store in current layer
-		i.layerContext.Define(n.Name, closure)
+		if err := i.layerContext.Define(n.Name, closure); err != nil {
+			return nil, i.error(node, err.Error())
+		}
 		return closure, nil
 
 	case *ast.FunctionCall:
 		funcVal, err := i.Eval(n.Function, env)
 		if err != nil {
 			return nil, err
+		}
+
+		if !isCallable(funcVal) {
+			return nil, i.error(node, fmt.Sprintf("not a function: %s", Show(funcVal)))
 		}
 
 		args := make([]interface{}, len(n.Arguments))
@@ -362,17 +448,11 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			args[idx] = val
 		}
 
-		// Handle closures
-		if closure, ok := funcVal.(*Closure); ok {
-			return closure.Call(args...)
+		result, err := callValue(funcVal, args...)
+		if err != nil {
+			return nil, i.wrap(node, err)
 		}
-
-		// Handle built-in functions (Go functions)
-		if fn, ok := funcVal.(func(...interface{}) (interface{}, error)); ok {
-			return fn(args...)
-		}
-
-		return nil, i.error(node, fmt.Sprintf("not a function: %v", funcVal))
+		return result, nil
 
 	// Binary operations
 	case *ast.BinaryOp:
@@ -392,11 +472,11 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			return nil, i.error(node, fmt.Sprintf("unknown operator: %s", n.Operator))
 		}
 
-		if fn, ok := opFunc.(func(...interface{}) (interface{}, error)); ok {
-			return fn(left, right)
+		result, err := callValue(opFunc, left, right)
+		if err != nil {
+			return nil, i.wrap(node, err)
 		}
-
-		return nil, i.error(node, fmt.Sprintf("operator %s is not callable", n.Operator))
+		return result, nil
 
 	// Unary operations
 	case *ast.UnaryOp:
@@ -405,19 +485,41 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			return nil, err
 		}
 
-		if n.Operator == "-" {
-			return negateNumber(operand)
-		} else if n.Operator == "not" {
+		switch n.Operator {
+		case "-":
+			result, err := negateNumber(operand)
+			if err != nil {
+				return nil, i.wrap(node, err)
+			}
+			return result, nil
+		case "not":
 			opFunc, err := i.layerContext.Lookup("not")
 			if err != nil {
 				return nil, i.error(node, "not operator not found")
 			}
-			if fn, ok := opFunc.(func(...interface{}) (interface{}, error)); ok {
-				return fn(operand)
+			result, err := callValue(opFunc, operand)
+			if err != nil {
+				return nil, i.wrap(node, err)
 			}
+			return result, nil
 		}
 
 		return nil, i.error(node, fmt.Sprintf("unknown unary operator: %s", n.Operator))
+
+	// Conditional
+	case *ast.IfExpr:
+		cond, err := i.Eval(n.Cond, env)
+		if err != nil {
+			return nil, err
+		}
+		b, ok := cond.(bool)
+		if !ok {
+			return nil, i.error(n.Cond, fmt.Sprintf("if condition must be a boolean, got %s", typeName(cond)))
+		}
+		if b {
+			return i.Eval(n.Then, env)
+		}
+		return i.Eval(n.Else, env)
 
 	// Let binding
 	case *ast.LetBinding:
@@ -426,7 +528,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			return nil, err
 		}
 
-		newEnv := make(map[string]interface{})
+		newEnv := make(map[string]interface{}, len(env)+1)
 		for k, v := range env {
 			newEnv[k] = v
 		}
@@ -445,7 +547,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			bindings := i.matchPattern(matchCase.Pattern, value, env)
 			if bindings != nil {
 				// Build env with pattern bindings for guard and body
-				newEnv := make(map[string]interface{})
+				newEnv := make(map[string]interface{}, len(env)+len(bindings))
 				for k, v := range env {
 					newEnv[k] = v
 				}
@@ -461,7 +563,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 					}
 					guardBool, ok := guardResult.(bool)
 					if !ok {
-						return nil, i.error(matchCase.Guard, fmt.Sprintf("guard expression must evaluate to a boolean, got %T", guardResult))
+						return nil, i.error(matchCase.Guard, fmt.Sprintf("guard expression must evaluate to a boolean, got %s", typeName(guardResult)))
 					}
 					if !guardBool {
 						continue // Guard failed, try next case
@@ -472,7 +574,7 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			}
 		}
 
-		return nil, i.error(node, fmt.Sprintf("no pattern matched for value: %v", value))
+		return nil, i.error(node, fmt.Sprintf("no pattern matched for value: %s", ShowNested(value)))
 
 	// Introspection expressions
 	case *ast.IntrospectionExpr:
@@ -631,6 +733,15 @@ func (i *Interpreter) matchPattern(pattern ast.Node, value interface{}, env map[
 	return nil
 }
 
+// isCallable reports whether val can be called as a function.
+func isCallable(val interface{}) bool {
+	switch val.(type) {
+	case *Closure, func(...interface{}) (interface{}, error):
+		return true
+	}
+	return false
+}
+
 // callValue invokes a value that may be a *Closure or a built-in Go function.
 func callValue(val interface{}, args ...interface{}) (interface{}, error) {
 	if closure, ok := val.(*Closure); ok {
@@ -639,7 +750,7 @@ func callValue(val interface{}, args ...interface{}) (interface{}, error) {
 	if fn, ok := val.(func(...interface{}) (interface{}, error)); ok {
 		return fn(args...)
 	}
-	return nil, fmt.Errorf("not callable: %T", val)
+	return nil, fmt.Errorf("not a function: %s", Show(val))
 }
 
 // isNoneValue checks whether a value is the data layer's None option type.
@@ -672,6 +783,7 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 	if len(values) == 1 {
 		return values[0], nil
 	}
+	layerNames := i.layerContext.LayersDefining(name) // parallel to values
 
 	switch mode {
 	case "chain":
@@ -713,13 +825,17 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 	case "fallback":
 		// Try from top layer down; return first result that is not None.
 		// Priority: non-None result > None result > error.
+		// A layer that errors is skipped, but the error is reported in the
+		// log so a bug in (say) a cache layer never silently looks like a
+		// cache miss.
 		return func(args ...interface{}) (interface{}, error) {
 			var lastNone interface{}
 			var lastErr error
-			for _, val := range values {
+			for idx, val := range values {
 				res, err := callValue(val, args...)
 				if err != nil {
 					lastErr = err
+					i.emit(fmt.Sprintf("[WARN] fallback: %s.%s failed, trying the next layer: %v", layerNames[idx], name, err))
 					continue
 				}
 				if !isNoneValue(res) {
@@ -769,18 +885,35 @@ func (i *Interpreter) applyPurityAnnotation(layerDecl *ast.LayerDeclaration) err
 }
 
 // SetVar seeds a variable into the interpreter's local environment.
-// Call this before Execute to provide values that @layers conditions can reference.
+// Call this before Execute to provide values that @layers conditions can
+// reference, or (in the visual editor) the current values of UI inputs.
 func (i *Interpreter) SetVar(name string, value interface{}) {
 	i.localEnv[name] = value
 }
 
-// Execute executes a complete Layer program
-func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
+// activeDeclarations returns the layer declarations that take part in the
+// program. With an @layers directive, a declared layer is active only if it
+// is listed (and its condition, if any, held) — a declared-but-unlisted
+// layer is "hidden", like a hidden layer in an image editor. core is always
+// active. Without a directive, every declared layer is active.
+func activeDeclarations(program *ast.Program, enabled map[string]bool) []*ast.LayerDeclaration {
+	var active []*ast.LayerDeclaration
+	for _, decl := range program.LayerDeclarations {
+		if program.LayersDirective != nil && decl.LayerName != "core" && !enabled[decl.LayerName] {
+			continue
+		}
+		active = append(active, decl)
+	}
+	return active
+}
+
+// Load prepares a program without running its main expression: it
+// activates the @layers stack, applies purity annotations, evaluates all
+// layer definitions, and statically checks every function body (undefined
+// names, unknown layers, purity violations).
+func (i *Interpreter) Load(program *ast.Program) error {
 	// Evaluate conditional @layers directives and activate layers.
-	// disabled tracks layers whose conditions evaluated to false — their
-	// @layer declaration blocks are skipped to prevent them sneaking into
-	// layerOrder via an internal AddLayer call inside Define.
-	disabled := make(map[string]bool)
+	enabled := make(map[string]bool)
 	if program.LayersDirective != nil {
 		if program.LayersDirective.BlendMode != "" {
 			i.layerContext.SetBlendMode(program.LayersDirective.BlendMode)
@@ -789,44 +922,40 @@ func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
 			if entry.Condition != nil {
 				result, err := i.Eval(entry.Condition, i.localEnv)
 				if err != nil {
-					return nil, fmt.Errorf("error evaluating condition for layer '%s': %w", entry.Name, err)
+					return fmt.Errorf("error evaluating condition for layer '%s': %w", entry.Name, err)
 				}
 				active, ok := result.(bool)
 				if !ok {
-					return nil, fmt.Errorf("condition for layer '%s' must evaluate to a boolean, got %T", entry.Name, result)
+					return i.error(entry.Condition, fmt.Sprintf("condition for layer '%s' must evaluate to a boolean, got %s", entry.Name, typeName(result)))
 				}
 				if !active {
-					disabled[entry.Name] = true
 					continue
 				}
 			}
+			enabled[entry.Name] = true
 			if err := i.EnableLayer(entry.Name); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
 
+	decls := activeDeclarations(program, enabled)
+
 	// Apply purity annotations before evaluating any definitions, so that
 	// a layer's purity is known regardless of declaration order.
-	for _, layerDecl := range program.LayerDeclarations {
-		if disabled[layerDecl.LayerName] {
-			continue
-		}
+	for _, layerDecl := range decls {
 		if err := i.applyPurityAnnotation(layerDecl); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	// Evaluate layer declarations, skipping disabled layers entirely.
-	for _, layerDecl := range program.LayerDeclarations {
-		if disabled[layerDecl.LayerName] {
-			continue
-		}
+	// Evaluate layer declarations.
+	for _, layerDecl := range decls {
 		i.layerContext.SetCurrentLayer(layerDecl.LayerName)
 
 		for _, definition := range layerDecl.Definitions {
 			if _, err := i.Eval(definition, i.localEnv); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
@@ -834,6 +963,15 @@ func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
 	// Definitions are done; top-level code runs outside any layer so it is
 	// unrestricted by purity rules.
 	i.layerContext.SetCurrentLayer("")
+
+	return i.check(decls, program.MainExpression)
+}
+
+// Execute executes a complete Layer program
+func (i *Interpreter) Execute(program *ast.Program) (interface{}, error) {
+	if err := i.Load(program); err != nil {
+		return nil, err
+	}
 
 	// Evaluate main expression
 	if program.MainExpression != nil {
@@ -865,7 +1003,7 @@ func negateNumber(val interface{}) (interface{}, error) {
 	case int:
 		return -int64(v), nil
 	default:
-		return nil, fmt.Errorf("cannot negate non-number: %T", val)
+		return nil, fmt.Errorf("cannot negate %s", typeName(val))
 	}
 }
 

@@ -2,61 +2,59 @@ package interpreter
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/jeanlazarou/layer/pkg/layers"
 )
 
-// Global debug logs storage
-var debugLogs = make([]string, 0)
-
-// SetupDebugLayer sets up the debug layer with logging and introspection functions
-func SetupDebugLayer(lc *layers.LayerContext) {
+// SetupDebugLayer sets up the debug layer with logging and introspection
+// functions. Every line they produce goes through interp's log sink, so it
+// reaches stderr in the CLI and the Output panel in the visual editor.
+func SetupDebugLayer(lc *layers.LayerContext, interp *Interpreter) {
 	lc.SetCurrentLayer("debug")
 
 	// ========== Logging Functions ==========
 
-	// log function - writes to stderr and returns the value
+	// log(value) - logs the value and returns it, so it can wrap any
+	// expression: log(compute(x))
 	lc.Define("log", func(args ...interface{}) (interface{}, error) {
 		if len(args) == 0 {
 			return nil, fmt.Errorf("log expects at least 1 argument")
 		}
-
-		timestamp := time.Now().Format("15:04:05.000")
-		logMsg := fmt.Sprintf("[%s] [INFO] %s", timestamp, formatValue(args[0]))
-
-		// Print to stderr
-		fmt.Fprintln(os.Stderr, logMsg)
-
-		// Store in logs
-		debugLogs = append(debugLogs, logMsg)
-
-		// Return the first argument for chaining
+		interp.emit("[INFO] " + Show(args[0]))
 		return args[0], nil
 	})
 
-	// trace function - wraps a function with tracing
+	// trace(name, fn) - wraps a function so each call and result is logged
 	lc.Define("trace", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 2 {
 			return nil, fmt.Errorf("trace expects 2 arguments (name, function)")
 		}
 
-		name := fmt.Sprintf("%v", args[0])
+		name := Show(args[0])
 		fn, ok := args[1].(*Closure)
 		if !ok {
-			return nil, fmt.Errorf("second argument to trace must be a function")
+			return nil, fmt.Errorf("second argument to trace must be a function, got %s", typeName(args[1]))
 		}
 
-		// Return a new closure that wraps the original with tracing
 		return &Closure{
-			Params:      fn.Params,
-			Body:        nil, // Special marker for trace function
-			Env: map[string]interface{}{
-				"__trace_name": name,
-				"__trace_fn":   fn,
+			Params: fn.Params,
+			Native: func(callArgs ...interface{}) (interface{}, error) {
+				argsStr := ""
+				for i, arg := range callArgs {
+					if i > 0 {
+						argsStr += ", "
+					}
+					argsStr += ShowNested(arg)
+				}
+				interp.emit(fmt.Sprintf("[TRACE] %s(%s) called", name, argsStr))
+				result, err := fn.Call(callArgs...)
+				if err != nil {
+					return nil, err
+				}
+				interp.emit(fmt.Sprintf("[TRACE] %s(%s) = %s", name, argsStr, ShowNested(result)))
+				return result, nil
 			},
-			Interpreter: fn.Interpreter,
 		}, nil
 	})
 
@@ -65,14 +63,7 @@ func SetupDebugLayer(lc *layers.LayerContext) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("inspect expects 1 argument")
 		}
-
-		timestamp := time.Now().Format("15:04:05.000")
-		info := inspectValue(args[0])
-		logMsg := fmt.Sprintf("[%s] [DEBUG] Inspect: %s", timestamp, info)
-
-		fmt.Fprintln(os.Stderr, logMsg)
-		debugLogs = append(debugLogs, logMsg)
-
+		interp.emit("[DEBUG] Inspect: " + inspectValue(args[0]))
 		return args[0], nil
 	})
 
@@ -87,23 +78,16 @@ func SetupDebugLayer(lc *layers.LayerContext) {
 		actual := args[1]
 		message := "Assertion failed"
 		if len(args) == 3 {
-			message = fmt.Sprintf("%v", args[2])
+			message = Show(args[2])
 		}
 
-		timestamp := time.Now().Format("15:04:05.000")
-
 		if !valuesEqual(expected, actual) {
-			errorMsg := fmt.Sprintf("%s: expected %v, got %v", message, expected, actual)
-			logMsg := fmt.Sprintf("[%s] [ERROR] %s", timestamp, errorMsg)
-			fmt.Fprintln(os.Stderr, logMsg)
-			debugLogs = append(debugLogs, logMsg)
+			errorMsg := fmt.Sprintf("%s: expected %s, got %s", message, ShowNested(expected), ShowNested(actual))
+			interp.emit("[ERROR] " + errorMsg)
 			return nil, fmt.Errorf("%s", errorMsg)
 		}
 
-		logMsg := fmt.Sprintf("[%s] [DEBUG] Assertion passed: %v == %v", timestamp, expected, actual)
-		fmt.Fprintln(os.Stderr, logMsg)
-		debugLogs = append(debugLogs, logMsg)
-
+		interp.emit(fmt.Sprintf("[DEBUG] Assertion passed: %s == %s", ShowNested(expected), ShowNested(actual)))
 		return actual, nil
 	})
 
@@ -114,21 +98,24 @@ func SetupDebugLayer(lc *layers.LayerContext) {
 			return nil, fmt.Errorf("benchmark expects 2 arguments (name, function)")
 		}
 
-		name := fmt.Sprintf("%v", args[0])
+		name := Show(args[0])
 		fn, ok := args[1].(*Closure)
 		if !ok {
-			return nil, fmt.Errorf("second argument to benchmark must be a function")
+			return nil, fmt.Errorf("second argument to benchmark must be a function, got %s", typeName(args[1]))
 		}
 
-		// Return a new closure that wraps the original with benchmarking
 		return &Closure{
-			Params:      fn.Params,
-			Body:        nil, // Special marker for benchmark function
-			Env: map[string]interface{}{
-				"__benchmark_name": name,
-				"__benchmark_fn":   fn,
+			Params: fn.Params,
+			Native: func(callArgs ...interface{}) (interface{}, error) {
+				start := time.Now()
+				result, err := fn.Call(callArgs...)
+				elapsed := time.Since(start)
+				if err != nil {
+					return nil, err
+				}
+				interp.emit(fmt.Sprintf("[BENCH] %s took %.3fms", name, float64(elapsed.Microseconds())/1000.0))
+				return result, nil
 			},
-			Interpreter: fn.Interpreter,
 		}, nil
 	})
 
@@ -137,63 +124,24 @@ func SetupDebugLayer(lc *layers.LayerContext) {
 	lc.Define("breakpoint", func(args ...interface{}) (interface{}, error) {
 		message := "Breakpoint"
 		if len(args) > 0 {
-			message = fmt.Sprintf("%v", args[0])
+			message = Show(args[0])
 		}
-
-		timestamp := time.Now().Format("15:04:05.000")
-		logMsg := fmt.Sprintf("[%s] [BREAK] BREAKPOINT: %s", timestamp, message)
-
-		fmt.Fprintln(os.Stderr, logMsg)
-		debugLogs = append(debugLogs, logMsg)
-
+		interp.emit("[BREAK] BREAKPOINT: " + message)
 		return map[string]interface{}{"type": "None"}, nil
 	})
 
 	lc.Define("get_logs", func(args ...interface{}) (interface{}, error) {
-		// Convert to []interface{} for Layer compatibility
-		logs := make([]interface{}, len(debugLogs))
-		for i, log := range debugLogs {
-			logs[i] = log
+		logs := make([]interface{}, len(interp.logs))
+		for i, line := range interp.logs {
+			logs[i] = line
 		}
 		return logs, nil
 	})
 
 	lc.Define("clear_logs", func(args ...interface{}) (interface{}, error) {
-		debugLogs = make([]string, 0)
+		interp.logs = nil
 		return map[string]interface{}{"type": "None"}, nil
 	})
-}
-
-// formatValue formats a value for display
-func formatValue(val interface{}) string {
-	switch v := val.(type) {
-	case string:
-		return v
-	case int64:
-		return fmt.Sprintf("%d", v)
-	case float64:
-		return fmt.Sprintf("%g", v)
-	case bool:
-		return fmt.Sprintf("%t", v)
-	case []interface{}:
-		return fmt.Sprintf("%v", v)
-	case map[string]interface{}:
-		// Check if it's an Option type
-		if typeVal, ok := v["type"]; ok {
-			if typeVal == "Some" {
-				return fmt.Sprintf("Some(%v)", v["value"])
-			} else if typeVal == "None" {
-				return "None"
-			}
-		}
-		return fmt.Sprintf("%v", v)
-	case *Closure:
-		return v.String()
-	case nil:
-		return "nil"
-	default:
-		return fmt.Sprintf("%v", v)
-	}
 }
 
 // inspectValue provides detailed inspection information

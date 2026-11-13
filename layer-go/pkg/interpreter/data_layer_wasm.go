@@ -1,4 +1,3 @@
-// +build js,wasm
 //go:build js && wasm
 
 package interpreter
@@ -78,14 +77,14 @@ func SetupDataLayer(lc *layers.LayerContext) {
 			return nil, fmt.Errorf("map_option expects 2 arguments (fn, option)")
 		}
 
-		fn, ok := args[0].(*Closure)
-		if !ok {
-			return nil, fmt.Errorf("first argument to map_option must be a function")
+		fn := args[0]
+		if !isCallable(fn) {
+			return nil, fmt.Errorf("first argument to map_option must be a function, got %s", typeName(fn))
 		}
 
 		if opt, ok := args[1].(map[string]interface{}); ok {
 			if opt["type"] == "Some" {
-				result, err := fn.Call(opt["value"])
+				result, err := callValue(fn, opt["value"])
 				if err != nil {
 					return map[string]interface{}{"type": "None"}, nil
 				}
@@ -103,14 +102,14 @@ func SetupDataLayer(lc *layers.LayerContext) {
 			return nil, fmt.Errorf("flatmap_option expects 2 arguments (fn, option)")
 		}
 
-		fn, ok := args[0].(*Closure)
-		if !ok {
-			return nil, fmt.Errorf("first argument to flatmap_option must be a function")
+		fn := args[0]
+		if !isCallable(fn) {
+			return nil, fmt.Errorf("first argument to flatmap_option must be a function, got %s", typeName(fn))
 		}
 
 		if opt, ok := args[1].(map[string]interface{}); ok {
 			if opt["type"] == "Some" {
-				result, err := fn.Call(opt["value"])
+				result, err := callValue(fn, opt["value"])
 				if err != nil {
 					return map[string]interface{}{"type": "None"}, nil
 				}

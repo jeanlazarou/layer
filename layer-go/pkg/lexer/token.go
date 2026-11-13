@@ -10,6 +10,7 @@ const (
 	NUMBER TokenType = iota
 	STRING
 	BOOLEAN
+	TEMPLATE // double-quoted string with {expr} interpolation; Value is []StringPart
 
 	// Identifiers and Keywords
 	IDENTIFIER
@@ -79,6 +80,7 @@ var tokenNames = map[TokenType]string{
 	NUMBER:     "NUMBER",
 	STRING:     "STRING",
 	BOOLEAN:    "BOOLEAN",
+	TEMPLATE:   "TEMPLATE",
 	IDENTIFIER: "IDENTIFIER",
 	FN:         "FN",
 	LET:        "LET",
@@ -137,6 +139,18 @@ func (t TokenType) String() string {
 type Token struct {
 	Type   TokenType
 	Value  interface{}
+	Line   int
+	Column int
+}
+
+// StringPart is one segment of a TEMPLATE token: either literal text or the
+// source of an interpolated expression. Line and Column locate the first
+// character of Expr in the original source, so the parser can report
+// errors inside interpolations at their real position.
+type StringPart struct {
+	Text   string
+	Expr   string
+	IsExpr bool
 	Line   int
 	Column int
 }

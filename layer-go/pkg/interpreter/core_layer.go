@@ -8,28 +8,28 @@ import (
 )
 
 // SetupCoreLayer sets up the core layer with built-in functions and operators
-func SetupCoreLayer(lc *layers.LayerContext) {
+func SetupCoreLayer(lc *layers.LayerContext, interp *Interpreter) {
 	lc.SetCurrentLayer("core")
 
 	// Arithmetic operators (+ supports both numeric and string concatenation)
 	lc.Define("+", makePlusOp())
-	lc.Define("-", makeNumericOp(func(a, b float64) float64 { return a - b }))
-	lc.Define("*", makeNumericOp(func(a, b float64) float64 { return a * b }))
-	lc.Define("/", makeNumericOp(func(a, b float64) float64 { return a / b }))
-	lc.Define("%", makeNumericOp(func(a, b float64) float64 { return math.Mod(a, b) }))
-	lc.Define("^", makeNumericOp(func(a, b float64) float64 { return math.Pow(a, b) }))
+	lc.Define("-", makeNumericOp("-", func(a, b float64) float64 { return a - b }))
+	lc.Define("*", makeNumericOp("*", func(a, b float64) float64 { return a * b }))
+	lc.Define("/", makeNumericOp("/", func(a, b float64) float64 { return a / b }))
+	lc.Define("%", makeNumericOp("%", func(a, b float64) float64 { return math.Mod(a, b) }))
+	lc.Define("^", makeNumericOp("^", func(a, b float64) float64 { return math.Pow(a, b) }))
 
 	// Comparison operators
 	lc.Define("==", makeComparisonOp(func(a, b interface{}) bool { return equals(a, b) }))
 	lc.Define("!=", makeComparisonOp(func(a, b interface{}) bool { return !equals(a, b) }))
-	lc.Define("<", makeNumericComparisonOp(func(a, b float64) bool { return a < b }))
-	lc.Define(">", makeNumericComparisonOp(func(a, b float64) bool { return a > b }))
-	lc.Define("<=", makeNumericComparisonOp(func(a, b float64) bool { return a <= b }))
-	lc.Define(">=", makeNumericComparisonOp(func(a, b float64) bool { return a >= b }))
+	lc.Define("<", makeNumericComparisonOp("<", func(a, b float64) bool { return a < b }))
+	lc.Define(">", makeNumericComparisonOp(">", func(a, b float64) bool { return a > b }))
+	lc.Define("<=", makeNumericComparisonOp("<=", func(a, b float64) bool { return a <= b }))
+	lc.Define(">=", makeNumericComparisonOp(">=", func(a, b float64) bool { return a >= b }))
 
 	// Logical operators
-	lc.Define("and", makeLogicalOp(func(a, b bool) bool { return a && b }))
-	lc.Define("or", makeLogicalOp(func(a, b bool) bool { return a || b }))
+	lc.Define("and", makeLogicalOp("and", func(a, b bool) bool { return a && b }))
+	lc.Define("or", makeLogicalOp("or", func(a, b bool) bool { return a || b }))
 	lc.Define("not", makeUnaryLogicalOp(func(a bool) bool { return !a }))
 
 	// List operations
@@ -59,7 +59,7 @@ func SetupCoreLayer(lc *layers.LayerContext) {
 	lc.Define("id", makeIdFunc())
 	lc.Define("const", makeConstFunc())
 	lc.Define("compose", makeComposeFunc())
-	lc.Define("print", makePrintFunc())
+	lc.Define("print", makePrintFunc(interp))
 }
 
 // Helper functions to create operator functions
@@ -82,7 +82,7 @@ func makePlusOp() func(...interface{}) (interface{}, error) {
 		b := toFloat64Safe(args[1])
 
 		if a == nil || b == nil {
-			return nil, fmt.Errorf("operator + requires either two strings or two numbers")
+			return nil, fmt.Errorf("operator + needs two numbers or two strings, got %s and %s", typeName(args[0]), typeName(args[1]))
 		}
 
 		result := *a + *b
@@ -96,7 +96,7 @@ func makePlusOp() func(...interface{}) (interface{}, error) {
 	}
 }
 
-func makeNumericOp(op func(float64, float64) float64) func(...interface{}) (interface{}, error) {
+func makeNumericOp(name string, op func(float64, float64) float64) func(...interface{}) (interface{}, error) {
 	return func(args ...interface{}) (interface{}, error) {
 		if len(args) != 2 {
 			return nil, fmt.Errorf("expected 2 arguments, got %d", len(args))
@@ -106,7 +106,7 @@ func makeNumericOp(op func(float64, float64) float64) func(...interface{}) (inte
 		b := toFloat64Safe(args[1])
 
 		if a == nil || b == nil {
-			return nil, fmt.Errorf("operator requires numeric arguments")
+			return nil, fmt.Errorf("operator %s needs two numbers, got %s and %s", name, typeName(args[0]), typeName(args[1]))
 		}
 
 		result := op(*a, *b)
@@ -129,7 +129,7 @@ func makeComparisonOp(op func(interface{}, interface{}) bool) func(...interface{
 	}
 }
 
-func makeNumericComparisonOp(op func(float64, float64) bool) func(...interface{}) (interface{}, error) {
+func makeNumericComparisonOp(name string, op func(float64, float64) bool) func(...interface{}) (interface{}, error) {
 	return func(args ...interface{}) (interface{}, error) {
 		if len(args) != 2 {
 			return nil, fmt.Errorf("expected 2 arguments, got %d", len(args))
@@ -139,14 +139,14 @@ func makeNumericComparisonOp(op func(float64, float64) bool) func(...interface{}
 		b := toFloat64Safe(args[1])
 
 		if a == nil || b == nil {
-			return nil, fmt.Errorf("comparison requires numeric arguments")
+			return nil, fmt.Errorf("operator %s needs two numbers, got %s and %s", name, typeName(args[0]), typeName(args[1]))
 		}
 
 		return op(*a, *b), nil
 	}
 }
 
-func makeLogicalOp(op func(bool, bool) bool) func(...interface{}) (interface{}, error) {
+func makeLogicalOp(name string, op func(bool, bool) bool) func(...interface{}) (interface{}, error) {
 	return func(args ...interface{}) (interface{}, error) {
 		if len(args) != 2 {
 			return nil, fmt.Errorf("expected 2 arguments, got %d", len(args))
@@ -156,7 +156,7 @@ func makeLogicalOp(op func(bool, bool) bool) func(...interface{}) (interface{}, 
 		b, bOk := args[1].(bool)
 
 		if !aOk || !bOk {
-			return nil, fmt.Errorf("logical operator requires boolean arguments")
+			return nil, fmt.Errorf("operator %s needs two booleans, got %s and %s", name, typeName(args[0]), typeName(args[1]))
 		}
 
 		return op(a, b), nil
@@ -171,7 +171,7 @@ func makeUnaryLogicalOp(op func(bool) bool) func(...interface{}) (interface{}, e
 
 		a, ok := args[0].(bool)
 		if !ok {
-			return nil, fmt.Errorf("not operator requires boolean argument")
+			return nil, fmt.Errorf("operator not needs a boolean, got %s", typeName(args[0]))
 		}
 
 		return op(a), nil
@@ -186,9 +186,9 @@ func makeMapFunc() func(...interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("map expects 2 arguments (function, list)")
 		}
 
-		fn, ok := args[0].(*Closure)
-		if !ok {
-			return nil, fmt.Errorf("first argument to map must be a function")
+		fn := args[0]
+		if !isCallable(fn) {
+			return nil, fmt.Errorf("first argument to map must be a function, got %s", typeName(fn))
 		}
 
 		list, ok := args[1].([]interface{})
@@ -198,7 +198,7 @@ func makeMapFunc() func(...interface{}) (interface{}, error) {
 
 		result := make([]interface{}, len(list))
 		for i, elem := range list {
-			val, err := fn.Call(elem)
+			val, err := callValue(fn, elem)
 			if err != nil {
 				return nil, err
 			}
@@ -215,9 +215,9 @@ func makeFilterFunc() func(...interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("filter expects 2 arguments (function, list)")
 		}
 
-		fn, ok := args[0].(*Closure)
-		if !ok {
-			return nil, fmt.Errorf("first argument to filter must be a function")
+		fn := args[0]
+		if !isCallable(fn) {
+			return nil, fmt.Errorf("first argument to filter must be a function, got %s", typeName(fn))
 		}
 
 		list, ok := args[1].([]interface{})
@@ -227,7 +227,7 @@ func makeFilterFunc() func(...interface{}) (interface{}, error) {
 
 		result := make([]interface{}, 0)
 		for _, elem := range list {
-			val, err := fn.Call(elem)
+			val, err := callValue(fn, elem)
 			if err != nil {
 				return nil, err
 			}
@@ -247,9 +247,9 @@ func makeReduceFunc() func(...interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("reduce expects 3 arguments (function, initial, list)")
 		}
 
-		fn, ok := args[0].(*Closure)
-		if !ok {
-			return nil, fmt.Errorf("first argument to reduce must be a function")
+		fn := args[0]
+		if !isCallable(fn) {
+			return nil, fmt.Errorf("first argument to reduce must be a function, got %s", typeName(fn))
 		}
 
 		acc := args[1]
@@ -260,7 +260,7 @@ func makeReduceFunc() func(...interface{}) (interface{}, error) {
 		}
 
 		for _, elem := range list {
-			val, err := fn.Call(acc, elem)
+			val, err := callValue(fn, acc, elem)
 			if err != nil {
 				return nil, err
 			}
@@ -799,14 +799,10 @@ func makeConstFunc() func(...interface{}) (interface{}, error) {
 
 		value := args[0]
 
-		// Return a closure that ignores its argument and returns the constant value
+		// A one-argument function that ignores its argument.
 		return &Closure{
 			Params: []string{"_"},
-			Body:   nil, // Special marker for const function
-			Env: map[string]interface{}{
-				"__const_value": value,
-			},
-			Interpreter: nil,
+			Native: func(...interface{}) (interface{}, error) { return value, nil },
 		}, nil
 	}
 }
@@ -817,39 +813,36 @@ func makeComposeFunc() func(...interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("compose expects 2 arguments (f, g)")
 		}
 
-		f, ok1 := args[0].(*Closure)
-		if !ok1 {
-			return nil, fmt.Errorf("first argument to compose must be a function")
+		f, g := args[0], args[1]
+		if !isCallable(f) {
+			return nil, fmt.Errorf("first argument to compose must be a function, got %s", typeName(f))
+		}
+		if !isCallable(g) {
+			return nil, fmt.Errorf("second argument to compose must be a function, got %s", typeName(g))
 		}
 
-		g, ok2 := args[1].(*Closure)
-		if !ok2 {
-			return nil, fmt.Errorf("second argument to compose must be a function")
-		}
-
-		// Return a closure that composes f and g: compose(f, g)(x) = f(g(x))
+		// compose(f, g)(x) = f(g(x))
 		return &Closure{
 			Params: []string{"x"},
-			Body:   nil, // Special marker for compose function
-			Env: map[string]interface{}{
-				"__compose_f": f,
-				"__compose_g": g,
+			Native: func(args ...interface{}) (interface{}, error) {
+				inner, err := callValue(g, args[0])
+				if err != nil {
+					return nil, err
+				}
+				return callValue(f, inner)
 			},
-			Interpreter: f.Interpreter, // Use the interpreter from f
 		}, nil
 	}
 }
 
-func makePrintFunc() func(...interface{}) (interface{}, error) {
+// makePrintFunc writes a value to the interpreter's output (stderr for the
+// CLI, the Output panel in the editor) and returns it unchanged.
+func makePrintFunc(interp *Interpreter) func(...interface{}) (interface{}, error) {
 	return func(args ...interface{}) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("print expects 1 argument")
 		}
-
-		// Print to stdout
-		fmt.Println(args[0])
-
-		// Return the value
+		interp.emit(Show(args[0]))
 		return args[0], nil
 	}
 }

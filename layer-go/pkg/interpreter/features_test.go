@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jeanlazarou/layer/pkg/lexer"
@@ -298,6 +299,7 @@ func TestBlendModeFallbackAllNone(t *testing.T) {
 func TestBlendModeFallbackTopErrorDegradeToNone(t *testing.T) {
 	// When the top layer errors, fallback tries the next layer.
 	// Here: broken errors, core returns None → result is None (not an error).
+	// The skipped error is not silent: it is reported in the log.
 	source := `
 	@layers [core, data, broken] blend: fallback
 
@@ -306,15 +308,29 @@ func TestBlendModeFallbackTopErrorDegradeToNone(t *testing.T) {
 	}
 
 	@layer broken {
-		fn fetch(k) = undefined_fn(k)
+		fn fetch(k) = k * 2
 	}
 
 	fetch("x")
 	`
-	result := mustExecute(t, source)
+	tokens, _ := lexer.Tokenize(source)
+	program, err := parser.Parse(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interp := NewInterpreter()
+	interp.LogSink = nil
+	result, err := interp.Execute(program)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
 	m, ok := result.(map[string]interface{})
 	if !ok || m["type"] != "None" {
 		t.Errorf("expected None result, got %v", result)
+	}
+	logs := interp.Logs()
+	if len(logs) != 1 || !strings.Contains(logs[0], "fallback: broken.fetch failed") {
+		t.Errorf("expected a fallback warning in the log, got %q", logs)
 	}
 }
 
@@ -325,11 +341,11 @@ func TestBlendModeFallbackAllErrored(t *testing.T) {
 	@layers [core, broken] blend: fallback
 
 	@layer core {
-		fn fetch(k) = undefined_bottom(k)
+		fn fetch(k) = k - 1
 	}
 
 	@layer broken {
-		fn fetch(k) = undefined_top(k)
+		fn fetch(k) = k * 2
 	}
 
 	fetch("x")
@@ -339,7 +355,11 @@ func TestBlendModeFallbackAllErrored(t *testing.T) {
 	interp := NewInterpreter()
 	_, err := interp.Execute(program)
 	if err == nil {
-		t.Error("expected error when all layers error, got nil")
+		t.Fatal("expected error when all layers error, got nil")
+	}
+	// The bottom layer runs last, so its error is the one returned.
+	if !strings.Contains(err.Error(), "operator -") {
+		t.Errorf("expected the bottom layer's error, got %v", err)
 	}
 }
 

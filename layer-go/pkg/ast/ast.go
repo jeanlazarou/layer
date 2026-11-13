@@ -133,7 +133,33 @@ func (f *FunctionCall) String() string {
 	return "FunctionCall"
 }
 
+// InterpolatedString is a double-quoted string containing {expr} segments,
+// e.g. "fib({n}) = {result}". Parts alternate between *StringLiteral (the
+// literal text) and arbitrary expressions; evaluation concatenates the
+// display form of every part.
+type InterpolatedString struct {
+	Base
+	Parts []Node
+}
+
+func (s *InterpolatedString) String() string {
+	return "InterpolatedString"
+}
+
 // Control Flow
+
+// IfExpr is `if cond then a else b`. Both branches are mandatory: every
+// expression must produce a value.
+type IfExpr struct {
+	Base
+	Cond Node
+	Then Node
+	Else Node
+}
+
+func (i *IfExpr) String() string {
+	return "IfExpr"
+}
 
 type LetBinding struct {
 	Base
@@ -319,9 +345,9 @@ func (b *Block) String() string {
 
 type Program struct {
 	Base
-	LayersDirective    *LayersDirective
-	LayerDeclarations  []*LayerDeclaration
-	MainExpression     Node
+	LayersDirective   *LayersDirective
+	LayerDeclarations []*LayerDeclaration
+	MainExpression    Node
 }
 
 func (p *Program) String() string {

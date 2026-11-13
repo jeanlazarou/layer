@@ -114,11 +114,20 @@ func (p *Parser) Parse() (*ast.Program, error) {
 		mainExpression = expr
 	}
 
+	// A program has a single main expression; anything after it would
+	// otherwise be silently ignored.
+	if !p.match(lexer.EOF) {
+		if p.match(lexer.AT) && p.peek(1).Type == lexer.LAYER {
+			return nil, p.error("@layer blocks must come before the main expression")
+		}
+		return nil, p.error(fmt.Sprintf("unexpected %s after the main expression (a program has one main expression; combine values with let ... in, or a list)", p.current().Type))
+	}
+
 	return &ast.Program{
-		Base:               ast.Base{Line: 1, Column: 1},
-		LayersDirective:    layersDirective,
-		LayerDeclarations:  layerDeclarations,
-		MainExpression:     mainExpression,
+		Base:              ast.Base{Line: 1, Column: 1},
+		LayersDirective:   layersDirective,
+		LayerDeclarations: layerDeclarations,
+		MainExpression:    mainExpression,
 	}, nil
 }
 
@@ -252,12 +261,21 @@ func (p *Parser) parseLayerDeclaration() (*ast.LayerDeclaration, error) {
 	}, nil
 }
 
-// parseDefinition parses a top-level definition (function, etc.)
+// parseDefinition parses a definition inside an @layer block. Only `fn`
+// definitions are allowed: a stray expression is almost always the tail of
+// the previous function written as if it were a statement, e.g.
+//
+//	fn f(x) =
+//	  let r = g(x) in
+//	  log(r)
+//	  r          ← parsed as a separate "definition"
 func (p *Parser) parseDefinition() (ast.Node, error) {
 	if p.match(lexer.FN) {
 		return p.parseFunctionDef()
 	}
-	return p.parseExpression()
+	return nil, p.error(fmt.Sprintf(
+		"expected 'fn' in @layer block, got %s — a function body is a single expression; to sequence steps use `let _ = step in next`",
+		p.current().Type))
 }
 
 // parseFunctionDef parses function definition: fn name(params) = body
@@ -329,8 +347,108 @@ func (p *Parser) parseExpression() (ast.Node, error) {
 		return p.parseLambda()
 	}
 
+	// Conditional: if cond then a else b
+	if p.isWord("if") {
+		return p.parseIf()
+	}
+
 	// Binary operations and other expressions
 	return p.parseBinaryOp(0)
+}
+
+// isWord reports whether the current token is the identifier word. Soft
+// keywords (if/then/else, when, blend) are lexed as identifiers and only
+// mean something in specific positions.
+func (p *Parser) isWord(word string) bool {
+	t := p.current()
+	if t.Type != lexer.IDENTIFIER {
+		return false
+	}
+	s, _ := t.Value.(string)
+	return s == word
+}
+
+// expectWord consumes the identifier word or reports an error.
+func (p *Parser) expectWord(word string) error {
+	if !p.isWord(word) {
+		return p.error(fmt.Sprintf("expected '%s', got %s", word, p.current().Type))
+	}
+	p.advance()
+	return nil
+}
+
+// parseIf parses: if <cond> then <expr> else <expr>
+func (p *Parser) parseIf() (*ast.IfExpr, error) {
+	start := p.advance() // "if"
+
+	cond, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectWord("then"); err != nil {
+		return nil, err
+	}
+	thenBranch, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+	if err := p.expectWord("else"); err != nil {
+		return nil, err
+	}
+	elseBranch, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ast.IfExpr{
+		Base: ast.Base{Line: start.Line, Column: start.Column},
+		Cond: cond,
+		Then: thenBranch,
+		Else: elseBranch,
+	}, nil
+}
+
+// parseTemplate turns a TEMPLATE token into an InterpolatedString by
+// parsing each {expr} segment with a sub-parser. Token positions are
+// shifted so errors point at the real location inside the string.
+func (p *Parser) parseTemplate() (*ast.InterpolatedString, error) {
+	tok := p.advance()
+	parts, _ := tok.Value.([]lexer.StringPart)
+
+	node := &ast.InterpolatedString{Base: ast.Base{Line: tok.Line, Column: tok.Column}}
+	for _, part := range parts {
+		if !part.IsExpr {
+			node.Parts = append(node.Parts, &ast.StringLiteral{
+				Base:  ast.Base{Line: tok.Line, Column: tok.Column},
+				Value: part.Text,
+			})
+			continue
+		}
+
+		tokens, err := lexer.Tokenize(part.Expr)
+		if err != nil {
+			return nil, fmt.Errorf("lexer error at %d:%d: in interpolation: %v", part.Line, part.Column, err)
+		}
+		for i := range tokens {
+			if tokens[i].Line == 1 {
+				tokens[i].Column += part.Column - 1
+			}
+			tokens[i].Line += part.Line - 1
+		}
+
+		sub := NewParser(tokens)
+		sub.gensym = p.gensym
+		expr, err := sub.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		if !sub.match(lexer.EOF) {
+			return nil, sub.error(fmt.Sprintf("unexpected %s in interpolation", sub.current().Type))
+		}
+		p.gensym = sub.gensym
+		node.Parts = append(node.Parts, expr)
+	}
+	return node, nil
 }
 
 // parseLetBinding parses let binding: let x = value in body
@@ -450,6 +568,10 @@ func (p *Parser) parsePattern() (ast.Node, error) {
 			Base:  ast.Base{Line: strToken.Line, Column: strToken.Column},
 			Value: strToken.Value.(string),
 		}, nil
+	}
+
+	if p.match(lexer.TEMPLATE) {
+		return nil, p.error("string patterns cannot contain {…} interpolation (use a single-quoted string or escape the brace as \\{)")
 	}
 
 	// Boolean pattern
@@ -768,6 +890,11 @@ func (p *Parser) parsePrimary() (ast.Node, error) {
 			Base:  ast.Base{Line: strToken.Line, Column: strToken.Column},
 			Value: strToken.Value.(string),
 		}, nil
+	}
+
+	// Interpolated string literal
+	if p.match(lexer.TEMPLATE) {
+		return p.parseTemplate()
 	}
 
 	// Boolean literal
