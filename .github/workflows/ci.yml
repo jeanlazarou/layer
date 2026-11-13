@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  interpreter:
+    name: Interpreter (Go + WebAssembly)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: layer-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: layer-go/go.mod
+          cache-dependency-path: layer-go/go.mod
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Run gofmt -w on:"; echo "$unformatted"; exit 1; fi
+
+      - name: go vet (native and wasm)
+        run: |
+          go vet ./...
+          GOOS=js GOARCH=wasm go vet ./cmd/wasm ./pkg/...
+
+      # Includes every examples/*.layer program and every complete program in README.md.
+      - name: go test
+        run: go test ./...
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: WebAssembly smoke test
+        run: ./build-wasm.sh && node test_wasm_node.js
+
+  editor:
+    name: Visual editor
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: visual-editor/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: visual-editor/frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: visual-editor/frontend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build

@@ -542,8 +542,7 @@ Use `?` in any argument position to create a partially applied function on the s
 let add5    = add(5, ?)    in   # fixes x=5, leaves y open
 let double  = multiply(2, ?) in   # fixes x=2, leaves y open
 
-add5(3)     # → 8
-double(7)   # → 14
+[add5(3), double(7)]   # → [8, 14]
 ```
 
 ### Hole in any position

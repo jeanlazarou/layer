@@ -1,82 +1,42 @@
 # Layer Visual Editor
 
-A beautiful, Photoshop-inspired visual interface for the Layer programming language, built with React, Material UI, and WebAssembly.
+A browser editor for the Layer language where the layer stack is the main interface. It runs entirely
+client-side: the Go interpreter is compiled to WebAssembly, so there is no server.
 
-## Features
-
-- 🎨 **Visual Layer Stack**: Drag-and-drop layer management with Material Design cards
-- ✏️ **Monaco Code Editor**: VS Code's editor for a professional coding experience
-- 🎯 **Real-time Execution**: Run Layer programs instantly with WebAssembly
-- 👁️ **Layer Toggle**: Enable/disable layers to see how composition works
-- 🎭 **Color-coded Layers**: Each layer type has a distinct color
-- 📊 **Output Console**: Terminal-style console for results and debug logs
-- 🎪 **Interactive UI Preview**: See UI components render live as Material UI elements
-- 🦀 **WebAssembly Powered**: Near-native performance, runs entirely in browser
-- 💾 **Browser Storage**: File I/O using localStorage (no backend needed!)
-
-## Architecture
-
-```
-visual-editor/
-└── frontend/          # React + Material UI + WASM
-    ├── src/
-    │   ├── App.tsx           # Main application
-    │   ├── components/
-    │   │   ├── LayerStack.tsx    # Layer panel (left)
-    │   │   ├── CodeEditor.tsx    # Monaco editor (center)
-    │   │   ├── OutputConsole.tsx # Output panel (bottom)
-    │   │   └── UIPreview.tsx     # Interactive UI rendering
-    │   └── wasm/
-    │       ├── layer.wasm        # Go interpreter (WASM)
-    │       ├── wasm_exec.js      # Go WASM runtime
-    │       └── browserFileSystem.ts # localStorage file system
-    └── package.json
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 16+ and npm
-
-**That's it!** No Python, no backend server needed.
-
-### Installation
+## Running it
 
 ```bash
-cd visual-editor/frontend
-npm install
+cd layer-go && ./build-wasm.sh          # builds public/layer.wasm + wasm_exec.js (needs Go)
+cd ../visual-editor/frontend
+pnpm install
+pnpm dev                                # http://localhost:5173
 ```
 
-### Running the Editor
+A prebuilt `public/layer.wasm` is committed, so `pnpm dev` also works without Go as long as you don't change
+the interpreter. `pnpm build` produces a static site in `dist/` that can be hosted anywhere (it uses relative
+URLs, so a sub-path such as GitHub Pages' `/layer/` works). The repository's
+[`pages.yml`](../.github/workflows/pages.yml) workflow publishes it.
 
-```bash
-cd visual-editor/frontend
-npm run dev
-```
+## What you can do
 
-Visual editor will open at `http://localhost:5173` (powered by ⚡ Vite!)
+- **Layer stack (left).** Top layers answer calls first. Click the eye to hide a layer (it stays in the file
+  but is not listed in `@layers`), drag to reorder, add custom layers, and click a custom layer's
+  `pure`/`impure` badge to toggle `@layer<impure>`. `core` is pinned at the bottom because the interpreter
+  always places it there.
+- **Run** with the toolbar button or **⌘/Ctrl + Enter**. After the first run, toggling, reordering or changing
+  the blend mode re-runs automatically, so you see the effect of each layer immediately.
+- **Blend mode** selector in the toolbar: override, chain, collect, fallback.
+- **Live diagnostics.** Syntax errors, undefined names, unknown layers and purity violations are reported as
+  you type, as editor markers and as an error count on the layer card. Runtime errors in the Output panel
+  show the layer, line and Layer call trace; click one to jump to it.
+- **Who answers each call?** (tree icon). For every function, it lists which layers define it, which one
+  answers under the current blend mode, and which are shadowed.
+- **Examples** menu with every program from [`examples/`](../examples/), plus **Open/Save** of `.layer`
+  files (Save keeps hidden layers). Your work is also kept in the browser's localStorage between visits.
+- **Interactive UI.** When the main expression returns a `ui` component, the Output panel renders it with
+  Material UI widgets.
 
-## Usage
-
-### Creating a Layer Program
-
-1. **Select a Layer**: Click on a layer card in the left panel
-2. **Edit Code**: Write your Layer code in the Monaco editor
-3. **Toggle Layers**: Click the eye icon to enable/disable layers
-4. **Execute**: Click the play button ▶️ in the top toolbar
-5. **View Output**: See results in the console at the bottom
-6. **Interactive UI**: If your code uses the UI layer, see live components!
-
-### Example: Factorial with Debug
-
-1. Select the **core** layer (green)
-2. Edit the factorial function
-3. Select the **debug** layer (orange)
-4. Add logging with `log("message")`
-5. Click Execute to see both result and debug logs
-
-### Example: Interactive Calculator
+## Interactive UI
 
 ```layer
 @layers [core, ui]
@@ -86,7 +46,7 @@ Visual editor will open at `http://localhost:5173` (powered by ⚡ Vite!)
   fn double(x) = x + x
 }
 
-@layer<ui> ui {
+@layer ui {
   fn app() = view({
     title: "Math Tools",
     children: [
@@ -97,221 +57,50 @@ Visual editor will open at `http://localhost:5173` (powered by ⚡ Vite!)
   })
 }
 
-render(app())
+app()
 ```
 
-This will create **actual interactive buttons and inputs** that execute Layer code when clicked!
+- `view`, `text`, `button`, `input`, `container`/`row`/`column` map to Material UI components.
+- A button's `onclick` is a Layer expression evaluated on top of the current stack. Every `input` value is
+  bound as a variable named after the input (`type: "number"` inputs as numbers). Values are passed as data,
+  never pasted into source code, so any text is safe.
+- By default the result appears below the UI. `target: "display"` writes it into the input named `display`
+  instead (see [`examples/calculator.layer`](../examples/calculator.layer)).
 
-### Layer Colors
-
-- 🟢 **Core** (Green): Pure functional logic
-- 🔵 **UI** (Blue): User interface components
-- 🟠 **Debug** (Orange): Logging and tracing
-- 🟣 **Data** (Purple): File I/O and localStorage
-- 🟣 **Main** (Purple): Entry point expression
-
-## Tech Stack
-
-### Frontend
-- **React 18**: Modern UI framework
-- **TypeScript**: Type-safe development
-- **Material UI 5**: Google's Material Design components
-- **Monaco Editor**: VS Code's editor component
-- **Vite**: Lightning-fast build tool
-- **Axios**: HTTP client (for future features)
-
-### Interpreter
-- **Go**: Language implementation
-- **WebAssembly**: Near-native performance in browser
-- **syscall/js**: Go/JavaScript interop
-
-### Storage
-- **localStorage**: Browser-native file system
-- **IndexedDB**: Future enhancement for larger files
-
-## Project Structure
+## Code map
 
 ```
-src/
-├── App.tsx                  # Main application component
-├── components/
-│   ├── LayerStack.tsx       # Layer management panel
-│   ├── CodeEditor.tsx       # Monaco editor wrapper
-│   ├── OutputConsole.tsx    # Output display with UI preview
-│   └── UIPreview.tsx        # Renders Layer UI as React components
-├── wasm/
-│   ├── layer.wasm           # Compiled interpreter
-│   ├── wasm_exec.js         # Go WASM runtime
-│   └── browserFileSystem.ts # File I/O abstraction
-└── index.tsx                # Entry point
+frontend/src/
+  App.tsx                     state, toolbar, running, persistence, auto re-run
+  program.ts                  editor state ⇄ Layer source; maps errors back to layers
+  defaults.ts                 the project shown on first visit
+  examples.ts                 bundles ../../examples/*.layer
+  storage.ts                  localStorage workspace
+  language/layerLanguage.ts   Monaco syntax highlighting + completion for Layer
+  components/
+    LayerStack.tsx            layer cards, purity badges, diff pills
+    CodeEditor.tsx            Monaco wrapper with error markers
+    OutputConsole.tsx         logs, results, clickable errors, UI preview
+    UIPreview.tsx             renders ui-layer XML as live components
+    ResolutionPanel.tsx       "who answers each call?"
+    HelpDialog.tsx
+  wasm/
+    layerWasm.ts              loads public/layer.wasm; typed run/describe/split calls
+    browserFileSystem.ts      data-layer file I/O backed by localStorage
 ```
 
-## Development
+The WASM module exports three functions returning JSON (see
+[`layer-go/cmd/wasm/main.go`](../layer-go/cmd/wasm/main.go)): `executeLayer(source, varsJSON?)`,
+`describeLayer(source)` and `parseLayerFile(source)`.
 
-### Running Development Server
+## Checks
 
 ```bash
-npm run dev      # Start Vite dev server with hot reload
+pnpm typecheck && pnpm lint && pnpm build
 ```
 
-### Building for Production
+## Known limitations
 
-```bash
-npm run build    # Build optimized bundle
-npm run preview  # Preview production build locally
-```
-
-### Linting and Formatting
-
-```bash
-npm run lint     # ESLint check
-npm run format   # Prettier formatting
-```
-
-### Rebuilding WASM Module
-
-If you modify the Go interpreter:
-
-```bash
-cd ../../layer-go
-./build-wasm.sh
-```
-
-This compiles the Go interpreter to WebAssembly and copies it to the frontend.
-
-## Features in Detail
-
-### Layer Stack Panel
-
-- **Visual Cards**: Each layer shown as Material UI card
-- **Eye Icon**: Toggle layer on/off
-- **Lock Icon**: Indicates built-in layers (cannot delete)
-- **Color Coding**: Instant visual recognition
-- **Reordering**: Drag layers to change composition order (future)
-
-### Code Editor
-
-- **Syntax Highlighting**: Layer language syntax
-- **Autocomplete**: Context-aware suggestions
-- **Error Highlighting**: Real-time syntax checking
-- **Vim Keybindings**: Optional (future)
-- **Multiple Files**: Tab-based editing (future)
-
-### Output Console
-
-- **Terminal Style**: Familiar console appearance
-- **ANSI Colors**: Syntax-highlighted output
-- **Clear Button**: Reset console
-- **Copy to Clipboard**: Easy result sharing
-- **UI Preview**: Live rendering of UI components
-
-### Interactive UI Rendering
-
-The visual editor can render Layer UI components as **actual interactive React components**:
-
-- `view({...})` → Material UI Box with border
-- `text({content: "..."})` → Typography component
-- `button({label: "...", onclick: "..."})` → Interactive Button
-- `input({name: "...", type: "..."})` → TextField with state
-- `container({layout: "..."})` → Flexbox layout
-
-When you click a button, the `onclick` expression executes in the Layer interpreter with current input values!
-
-## Browser File System
-
-The visual editor provides a virtual file system using localStorage:
-
-```layer
-@layers [core, data]
-
-# Write a file
-data.write_file("notes.txt", "Hello, Layer!")
-
-# Read it back
-let content = data.read_file("notes.txt") in
-data.unwrap(content, "File not found")
-```
-
-Files persist across sessions in your browser!
-
-## Deployment
-
-The visual editor is a **pure static site** - deploy anywhere:
-
-### GitHub Pages
-
-```bash
-npm run build
-# Deploy 'dist' folder to gh-pages branch
-```
-
-### Netlify / Vercel / Cloudflare Pages
-
-```bash
-npm run build
-# Deploy 'dist' folder
-```
-
-### Configuration
-
-- **Build Command**: `npm run build`
-- **Output Directory**: `dist`
-- **Node Version**: 16+
-
-## Troubleshooting
-
-### "WASM module failed to load"
-
-**Solution**: Ensure the WASM file is in `public/wasm/`:
-```bash
-cd ../../layer-go
-./build-wasm.sh
-```
-
-### "Port 5173 already in use"
-
-**Solution**: Use a different port
-```bash
-PORT=5174 npm run dev
-```
-
-### "localStorage quota exceeded"
-
-**Solution**: Clear browser storage for the site or use smaller files
-
-### "UI components not rendering"
-
-**Solution**: Check that your Layer code returns valid XML from `render()` function
-
-## Roadmap
-
-- [x] Monaco code editor integration
-- [x] Layer stack visualization
-- [x] Real-time code execution
-- [x] WebAssembly interpreter
-- [x] Interactive UI rendering
-- [x] Browser file system
-- [ ] Multiple file tabs
-- [ ] Layer drag-and-drop reordering
-- [ ] Vim keybindings
-- [ ] Theme customization (dark mode)
-- [ ] Collaborative editing
-- [ ] Share programs via URL
-- [ ] More UI components (tables, charts, forms)
-
-## Contributing
-
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
-
-## License
-
-See [LICENSE](../../LICENSE) for details.
-
-## Learn More
-
-- [Language Specification](../../LANGUAGE_SPEC.md)
-- [Philosophy](../../PHILOSOPHY.md)
-- [Example Programs](../../examples/)
-- [Quick Start Guide](QUICKSTART.md)
-
-Happy layer programming! 🎨✨
+- Monaco is loaded from a CDN by `@monaco-editor/react`, so the editor needs network access on first load.
+- Programs run on the main thread; a very long computation blocks the page until it finishes. Runaway
+  recursion stops with an error at a depth of 20,000 calls.

@@ -7,11 +7,16 @@ Quick reference for testing the complete Layer implementation.
 ## 🧪 Run All Tests
 
 ```bash
-cd /home/lab/projects/layer/layer-go
-go test ./pkg/interpreter -v
+cd layer-go
+go test ./...                            # interpreter, CLI, every example, every README program
+./build-wasm.sh && node test_wasm_node.js   # WebAssembly build + JSON API smoke test
+
+cd ../visual-editor/frontend
+pnpm typecheck && pnpm lint && pnpm build
 ```
 
-**Expected output**: 22/22 tests passing ✅
+All of these run in CI (`.github/workflows/ci.yml`). The manual browser checks below are still useful after
+editor changes.
 
 ---
 
@@ -432,7 +437,7 @@ All features working when:
 
 Expected performance:
 
-- **WASM load time**: < 1 second (4.3 MB)
+- **WASM size**: about 4.6 MB (1.3 MB gzipped)
 - **Virtual mode I/O**: < 10ms per operation
 - **Real mode I/O**: < 100ms per operation (disk access)
 - **Function execution**: Comparable to native Go

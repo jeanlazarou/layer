@@ -4,360 +4,117 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Layer is an experimental purely functional programming language built around **layer-based composition**. Like Photoshop's layer system for images, Layer allows programmers to stack different aspects of their programs (UI, debugging, async operations, data persistence) on top of a core functional foundation.
+Layer is an experimental purely functional programming language built around **layer-based composition**:
+a program is a stack of layers (core, ui, debug, data, or custom) where higher layers override or wrap
+functions of lower ones, like layers in an image editor.
 
-The project consists of:
-- **Go-based interpreter**: Tree-walk interpreter with lexer, parser, and evaluator compiled to WebAssembly
-- **Visual Editor**: React + Material UI interface with Monaco editor and **live interactive UI rendering**
-- **Layer system**: Composable layers (core, ui, debug, data) that can override/wrap each other
+- **Go interpreter** (`layer-go/`): lexer → parser → static checks → tree-walking evaluator. Built natively
+  (CLI) and to WebAssembly (editor).
+- **Visual editor** (`visual-editor/frontend/`): React + MUI + Monaco, runs the WASM interpreter in the browser.
+  The layer stack is the main UI; `ui`-layer results render as live widgets.
 
-**Key Innovation**: The UI layer outputs declarative UI components that are **actually rendered as interactive React components** in the visual editor. Write functional UI code in Layer, see it come alive instantly with buttons, inputs, and real interactivity!
-
-## Development Commands
-
-### Go Interpreter (Core Language)
-
-Note: there is currently **no native CLI** (`cmd/layer` does not exist). The
-interpreter is exercised through Go tests and through the WASM module used
-by the visual editor.
+## Commands
 
 ```bash
 cd layer-go
+go test ./...                          # everything: interpreter, CLI, examples/, README programs
+go test ./pkg/interpreter -run TestX   # one test
+go vet ./... && GOOS=js GOARCH=wasm go vet ./cmd/wasm ./pkg/...
+gofmt -l .                             # CI fails on unformatted files
+go run ./cmd/layer run ../examples/fibonacci.layer     # run a program
+go run ./cmd/layer check file.layer                    # load + static checks only
+go run ./cmd/layer run -D env=dev file.layer           # seed variables for @layers conditions
+./build-wasm.sh                        # writes ../visual-editor/frontend/public/{layer.wasm,wasm_exec.js}
+node test_wasm_node.js                 # smoke-test the WASM build (run after build-wasm.sh)
 
-# Run tests
-go test ./...                   # All tests
-go test ./pkg/interpreter       # Specific package
-go test -v ./...                # Verbose output
-go test -cover ./...            # With coverage report
-
-# Build WebAssembly module (also copies it into visual-editor/frontend/public/)
-./build-wasm.sh                 # Outputs layer.wasm
+cd visual-editor/frontend              # package manager: pnpm
+pnpm dev                               # http://localhost:5173
+pnpm typecheck && pnpm lint && pnpm build
 ```
 
-### Visual Editor (Frontend Only - No Backend Needed!)
-
-The visual editor runs entirely in the browser using WebAssembly:
-
-```bash
-# Frontend (standalone - WASM interpreter embedded)
-cd visual-editor/frontend
-npm run dev                     # Runs on http://localhost:5173 (Vite dev server)
-npm run build                   # Production build
-npm run preview                 # Preview production build
-npm run lint                    # Lint code
-```
+CI (`.github/workflows/ci.yml`) runs all of the above; `pages.yml` deploys the editor to GitHub Pages.
 
 ## Architecture
 
-### Language Implementation (Go)
-
-The interpreter follows a traditional pipeline with layer-aware extensions:
-
 ```
-Source Code (.layer file)
-    ↓
-Lexer (layer-go/pkg/lexer) → Tokens
-    ↓
-Parser (layer-go/pkg/parser) → AST (layer-go/pkg/ast)
-    ↓
-Interpreter (layer-go/pkg/interpreter) + Layer System (layer-go/pkg/layers)
-    ↓
-Result
+source → lexer (pkg/lexer) → parser (pkg/parser) → AST (pkg/ast)
+       → Interpreter.Load: activate @layers, purity annotations, evaluate fn definitions,
+                           static checks (pkg/interpreter/check.go)
+       → Interpreter.Execute: evaluate the main expression
+pkg/runner   wraps the whole pipeline: Run / Describe → structured Result with located Issues,
+             never panics. Used by cmd/layer, cmd/wasm and tests.
+pkg/sourcefile  splits a .layer file into editor parts (layers, purity, blend mode, main).
+pkg/layers   LayerContext: layer order, per-layer definitions, purity flags, blend mode.
 ```
 
-**Key Components:**
+Key interpreter files (`layer-go/pkg/interpreter/`):
+- `interpreter.go` — `Closure`, `Eval`, blend modes (`lookupWithBlend`), `Load`/`Execute`, runtime purity checks
+- `check.go` — static checks: undefined names, unknown/inactive layers, purity violations (all reported at once)
+- `values.go` — `RuntimeError` (position + Layer call trace), `CheckError`, `Show` (display format), `typeName`
+- `describe.go` — stack/resolution description used by the editor's "who answers each call?" panel
+- `limits_js.go` / `limits_other.go` — recursion limits; under WASM, deep calls hop goroutines (see below)
+- `core_layer.go`, `debug_layer.go`, `ui_layer.go`, `data_layer_native.go` / `data_layer_wasm.go` — built-ins
 
-- **`layer-go/pkg/lexer`**: Tokenization with support for λ symbol, multi-character operators (→, ==, etc.)
-- **`layer-go/pkg/parser`**: Recursive descent parser with precedence climbing for operators
-- **`layer-go/pkg/ast`**: AST node definitions using Go structs
-- **`layer-go/pkg/interpreter`**: Evaluates AST with closures, pattern matching, and layer-aware lookups
-- **`layer-go/pkg/layers`**: Layer implementations (core, ui, debug, data)
-  - **`layer_context.go`**: LayerContext manages layer stack and function resolution
-  - Layer resolution: searches from top to bottom, first match wins
-  - Supports explicit layer access (e.g., `core.factorial`)
+## Language semantics worth knowing
 
-**Layer Composition Model:**
+- **Resolution**: unqualified names resolve top-down through active layers (open recursion — recursive calls
+  re-enter the top of the stack). `core.f(x)` targets one layer. `core` is always the bottom layer.
+- **Activation**: with an `@layers [...]` directive, only listed layers are active; a declared but unlisted
+  `@layer x { }` block is inactive (the editor's "hidden" layers). Without a directive, all declared layers are
+  active. Conditions (`debug if env == "dev"`) are evaluated at load time from `SetVar` / CLI `-D` values.
+- **Layer bodies contain only `fn` definitions.** A function body is a single expression; sequence steps with
+  `let _ = step in next`. There are no `{ stmt; stmt }` blocks (`{` starts a record).
+- **Strings**: double-quoted strings interpolate `{expr}` (unless `{` is followed by whitespace, a quote, `\` or
+  `}`; `\{` escapes). Single-quoted strings never interpolate.
+- **`if c then a else b`** — `if`/`then`/`else`/`when`/`blend` are soft keywords (lexed as identifiers).
+- **Purity**: `core` and custom layers are pure; `ui`/`debug`/`data` impure; `@layer<impure> name` opts in.
+  Enforced statically (check.go) and at runtime.
+- **Blend modes**: `@layers [...] blend: override|chain|collect|fallback`. `fallback` skips a failing layer but
+  logs a `[WARN]` line.
+- **Output**: `log`, `trace`, `print`, ... go through `Interpreter.emit` → `LogSink` (stderr in the CLI;
+  collected into `Result.Logs` for the editor). Never write to `os.Stdout`/`os.Stderr` from built-ins.
+- **Errors**: build them with `i.error(node, msg)` (positioned `*RuntimeError`); errors from Go built-ins are
+  positioned at the call site by `i.wrap`. Messages should use `typeName(v)` (Layer type names), not `%T`.
+- **WASM stack**: the browser's native stack is ~1 MB. `Closure.Call` evaluates on a fresh goroutine every
+  `stackHopEvery` calls under WASM (parking unwinds the native stack); without this, ~2000-deep recursion
+  killed the Go runtime permanently. Keep this in mind before restructuring `Closure.Call`.
 
-Layers stack from bottom to top. Higher layers can override or wrap lower layer functions:
+## Common workflows
 
-```
-┌─────────────────┐
-│   Debug Layer   │ ← Can wrap core.fibonacci with logging
-├─────────────────┤
-│   Data Layer    │ ← File I/O, JSON, localStorage
-├─────────────────┤
-│   UI Layer      │ ← Declarative UI components
-├─────────────────┤
-│   Core Layer    │ ← Pure functional primitives (mandatory)
-└─────────────────┘
-```
+**Add a built-in function**: define it in the right `Setup*Layer` with `lc.Define(...)` (use `callValue` /
+`isCallable` to accept any function value, `Show` to format values); add tests in
+`pkg/interpreter/*_test.go`; document it in LANGUAGE_SPEC.md; if it lives in an optional layer, add it to
+`builtinProviders` in `check.go` (better "undefined name" message) and to `BUILTINS` in
+`visual-editor/frontend/src/language/layerLanguage.ts` (highlighting/completion); rebuild WASM.
 
-### Visual Editor Architecture
+**Change syntax**: update `pkg/lexer` / `pkg/parser` / `pkg/ast`, then evaluation in `interpreter.go`, the
+walker in `check.go` (or names will be reported as undefined or skipped), and the Monaco tokenizer.
 
-```
-visual-editor/
-└── frontend/
-    └── src/
-        ├── App.tsx         # Main React application with WASM interpreter
-        ├── components/
-        │   ├── LayerStack.tsx    # Layer panel (left sidebar)
-        │   ├── CodeEditor.tsx    # Monaco editor integration
-        │   ├── OutputConsole.tsx # Terminal-style output with UI preview
-        │   └── UIPreview.tsx     # Renders Layer UI components as live React UI
-        └── wasm/
-            ├── layer.wasm        # Go interpreter compiled to WebAssembly
-            ├── wasm_exec.js      # Go WASM runtime
-            └── browserFileSystem.ts  # Browser storage for file I/O
-```
+**Add a built-in layer**: `Setup<Name>Layer(lc, interp)`, register it in `Interpreter.EnableLayer` (with its
+purity), add a color in `visual-editor/frontend/src/program.ts` (`LAYER_COLORS`) and the name to
+`BUILTIN_LAYERS` in `src/types/index.ts`.
 
-**Tech Stack:**
-- Frontend: React 18, Vite, TypeScript, Material UI 5, Monaco Editor
-- Interpreter: Go compiled to WebAssembly (embedded in browser)
-- Storage: localStorage for file I/O and data persistence
+**Examples and docs are tested**: every `examples/*.layer` must run (a `# Result: ...` comment is compared
+with the output), and every ```` ```layer ```` block in README.md that starts with `@layers` must run
+(`layer-go/cmd/layer/main_test.go`). Start an intentionally failing README snippet with a comment line.
 
-**Interactive UI Rendering:**
+## Visual editor notes
 
-The UI layer is not just conceptual - it's fully functional! When Layer code outputs UI components, they are rendered as actual interactive Material UI components:
+- `src/program.ts` assembles editor state into a program (`buildProgram`) and maps interpreter positions back
+  to a layer + line (`locateIssue`); the editor's layer order is top-first, the program's is bottom-first.
+- Live diagnostics call `describeLayer` (debounced) on every edit; runs call `executeLayer`.
+- UI button handlers run `onclick` as the main expression with input values passed as variables
+  (`executeLayer(source, varsJSON)`) — never splice user text into source. `target: "<input>"` routes a result
+  into an input.
+- Layer colors: core green, ui blue, debug orange, data purple.
 
-```layer
-@layer ui {
-  fn calculator() = view({
-    title: "Calculator",
-    children: [
-      input({name: "x", placeholder: "Enter number"}),
-      button({label: "Square", onclick: "x * x"}),
-      text({content: "Click to see result"})
-    ]
-  })
-}
-```
+## Status
 
-This renders as:
-- Real Material UI TextField for the input
-- Real Material UI Button that executes `x * x` when clicked
-- Real Typography component for text
-- State management handles input values and result display
+Implemented: interpreter, CLI, WASM editor, core/ui/debug/data layers, open recursion, blend modes, purity
+(static + runtime), conditional layers, introspection (`@which`, `@inspect`, `@diff`), partial application.
+Not implemented: type inference (Hindley-Milner is specified only), modules, REPL, per-function blend modes.
 
-**Component Mapping** (`visual-editor/frontend/src/components/UIPreview.tsx`):
-- `view` → Material UI Box with styled border
-- `text` → Typography component
-- `button` → Button with onclick handler that executes Layer expressions
-- `input` → TextField with state binding
-- `container` → Flexbox layout (horizontal/vertical)
+## Docs
 
-When a button is clicked, the `onclick` expression is sent back to the interpreter with current input values, executed as Layer code, and the result updates the UI - creating a **true reactive programming environment**.
-
-### Layer System Deep Dive
-
-The layer system is the core innovation of the language:
-
-1. **Function Resolution**: When calling `fibonacci(5)`, the interpreter searches layers from top to bottom
-2. **Explicit Layer Access**: `core.fibonacci(5)` bypasses layer override and calls the core version directly
-3. **Wrapping Pattern**: Higher layers can wrap lower layers:
-   ```layer
-   @layer debug {
-     fn fibonacci(n) = {
-       log("Computing fib({n})")
-       core.fibonacci(n)  # Calls original implementation
-     }
-   }
-   ```
-
-4. **Layer Override**: If a layer defines a function with the same name, it overrides lower layers
-
-### Data Layer Implementation
-
-The data layer (`layer-go/pkg/interpreter/data_layer_wasm.go`) provides side effects through an **Option pattern** (functional error handling):
-
-- All I/O operations return `data.Some(value)` on success or `data.None()` on failure
-- Operations: file I/O, JSON parsing, localStorage
-- Helper functions: `is_some()`, `is_none()`, `unwrap()`, `map_option()`
-
-## Important Patterns and Conventions
-
-### When Working with the Go Interpreter
-
-1. **Build before testing**: Run `go build` after making changes to ensure code compiles
-2. **Parser changes require AST node updates**: If adding new syntax, update both `parser/` and `ast/` packages
-3. **Layer functions** are registered in `layer-go/pkg/interpreter/*_layer.go` files (e.g., `core_layer.go`, `ui_layer.go`)
-4. **Pattern matching** is implemented in `interpreter.go`'s `matchPattern()` method
-5. **Closures capture environment**: Functions in Layer are closures (see `Closure` struct in `interpreter.go`)
-
-### When Working with the Visual Editor
-
-1. **No backend needed**: Visual editor runs standalone with WASM interpreter embedded
-2. **Frontend uses Vite**: Much faster than Create React App, uses ES modules
-3. **Monaco editor integration**: Loaded via `@monaco-editor/react` package
-4. **UI Preview is fully interactive**: The `UIPreview.tsx` component parses XML output from Layer's UI layer and renders actual Material UI components
-5. **Layer colors are semantic**:
-   - Core: Green (pure functional)
-   - UI: Blue (interface)
-   - Debug: Orange (logging/tracing)
-   - Data: Purple (I/O operations)
-   - Main: Purple (entry point)
-
-### Testing Interactive UI
-
-To test the interactive UI rendering:
-
-1. Write a Layer program with a UI layer that returns components
-2. Execute the program
-3. The output console will show both text output and a live UI preview
-4. Interact with rendered buttons and inputs - they execute Layer code in real-time
-
-Example interactive calculator:
-```layer
-@layers [core, ui]
-
-@layer core {
-  fn square(x) = x * x
-  fn double(x) = x + x
-}
-
-@layer ui {
-  fn app() = view({
-    title: "Math Tools",
-    children: [
-      input({name: "num", placeholder: "Enter a number"}),
-      button({label: "Square", onclick: "square(num)"}),
-      button({label: "Double", onclick: "double(num)"})
-    ]
-  })
-}
-
-app()
-```
-
-### File Locations
-
-- **Example programs**: `examples/*.layer`
-- **Language spec**: `LANGUAGE_SPEC.md` (complete syntax and semantics reference)
-- **Architecture docs**: `docs/ARCHITECTURE.md`
-- **Visual editor docs**: `visual-editor/README.md`, `visual-editor/QUICKSTART.md`
-
-## Testing
-
-Tests use Go's testing framework and are located in `layer-go/`:
-- `pkg/lexer/*_test.go`: Tokenization tests
-- `pkg/parser/*_test.go`: Parsing and AST generation tests
-- `pkg/interpreter/*_test.go`: Evaluation and runtime tests
-
-Run all tests:
-```bash
-cd layer-go
-go test ./...
-```
-
-**Note**: Type inference is specified but not yet implemented (current implementation uses dynamic typing).
-
-## Common Workflows
-
-### Adding a New Built-in Function to a Layer
-
-1. Open the appropriate layer file (e.g., `layer-go/pkg/interpreter/core_layer.go`)
-2. Add the function using `lc.Define()` in the `Setup*Layer()` function
-3. Update tests in `layer-go/pkg/interpreter/*_test.go`
-4. Document in `LANGUAGE_SPEC.md` if it's a public API
-5. Rebuild WASM if needed: `cd layer-go && ./build-wasm.sh`
-
-### Adding a New Layer
-
-1. Create new file in `layer-go/pkg/interpreter/` (e.g., `async_layer.go`)
-2. Define `SetupAsyncLayer(lc *layers.LayerContext)` function
-3. Register layer functions using `lc.Define()`
-4. Call the setup function in `interpreter.go`
-5. Update `LANGUAGE_SPEC.md` with layer documentation
-6. Add layer color mapping in visual editor (`visual-editor/frontend/src/components/LayerStack.tsx`)
-
-### Debugging Layer Programs
-
-Use the debug layer to trace execution:
-```layer
-@layers [core, debug]
-
-@layer debug {
-  fn fibonacci(n) = {
-    log("fib({n})")
-    core.fibonacci(n)
-  }
-}
-```
-
-Or use Go's debugging tools:
-```bash
-# Run with verbose output
-cd layer-go
-./layer run --verbose ../examples/myprogram.layer
-
-# Use Delve debugger
-dlv debug ./cmd/layer -- run ../examples/myprogram.layer
-```
-
-## Project Status
-
-This is an experimental language exploring novel programming concepts. Current implementation status:
-- ✅ Lexer, parser, interpreter (Go implementation)
-- ✅ Core, UI, Debug, Data layers
-- ✅ Visual editor with Monaco integration
-- ✅ **Interactive UI rendering** - UI layer components render as live, interactive React components
-- ✅ **WebAssembly compilation** - Go implementation compiled to WASM for standalone deployment!
-- ✅ Purity enforcement (runtime): pure layers cannot call impure functions; `@layer<impure>` opts in — see LANGUAGE_SPEC.md "Layer Purity System"
-- ✅ Open recursion semantics specified and test-locked (unqualified calls are late-bound through the stack; `core.f` is the escape hatch)
-- ✅ Blend modes (override, chain, collect, fallback) — see `examples/blend_*.layer`
-- ❌ Type inference (Hindley-Milner specified but not implemented)
-- ❌ Module system
-- ❌ Effect system (beyond the pure/impure layer split)
-
-## ✅ WebAssembly Architecture (COMPLETED!)
-
-**Status**: The Layer interpreter is implemented in Go and compiled to WebAssembly!
-
-**What's Complete**:
-- ✅ Full Go implementation in `layer-go/` (lexer, parser, interpreter, layer system)
-- ✅ All tests passing
-- ✅ WASM module compiled (`layer.wasm` - ~3 MB)
-- ✅ Frontend integrated (no backend needed!)
-- ✅ Near-native performance
-
-**Architecture**:
-```
-Standalone (Current):
-React Frontend ←(Direct JS calls)→ Layer WASM Module (Go compiled)
-```
-
-**How to Use**:
-```bash
-# Build WASM module
-cd layer-go
-./build-wasm.sh
-
-# Run frontend (NO BACKEND NEEDED!)
-cd ../visual-editor/frontend
-npm run dev
-# Opens at http://localhost:5173
-```
-
-**Deployment**:
-```bash
-cd visual-editor/frontend
-npm run build
-# Deploy 'dist' folder to:
-# - GitHub Pages
-# - Netlify
-# - Vercel
-# - CloudFlare Pages
-# - Any static hosting
-```
-
-**Benefits Achieved**:
-- ✅ No Flask backend required
-- ✅ Deploy as pure static site
-- ✅ Works offline after first load
-- ✅ Near-native performance (10x faster)
-- ✅ All interactive UI features preserved
-- ✅ Scales infinitely via CDN
-
-**Documentation**:
-- See `MIGRATION_SUCCESS.md` for complete migration details
-- See `layer-go/WASM_COMPLETE.md` for WASM integration guide
-- See `layer-go/INTERPRETER_COMPLETE.md` for Go implementation details
+`LANGUAGE_SPEC.md` (reference), `docs/TUTORIAL.md`, `docs/ARCHITECTURE.md`, `docs/POSITIONING.md` (prior art),
+`docs/IDEAS.md` (future work), `PHILOSOPHY.md`, `visual-editor/README.md`.

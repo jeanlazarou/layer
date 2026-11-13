@@ -25,7 +25,9 @@ A Layer program consists of one or more layers stacked on top of each other. Eac
 
 The `@layers` directive has **four purposes**:
 
-1. **Enable/Disable**: Only layers listed in `@layers [...]` are active
+1. **Enable/Disable**: Only layers listed in `@layers [...]` are active. A declared `@layer x { }` block that is
+   not listed is *inactive* ("hidden"): its definitions are not loaded and `x.f()` is an error. `core` is always
+   active and always at the bottom. A program without an `@layers` directive activates every declared layer.
 2. **Set Order**: The order in the list determines search priority
 3. **Conditional activation** (optional): Each layer can have an `if <expr>` guard
 4. **Set Blend Mode** (optional): Controls how functions defined in multiple layers are combined
@@ -71,8 +73,8 @@ Layers are composed from **bottom to top**, similar to Photoshop layers. The ord
 @layer debug {
   fn compute(x) =
     let result = middleware.compute(x) in
-    debug.log("Result: {result}")
-    result
+    let _ = log("Result: {result}") in
+      result
 }
 
 compute(5)  # Calls debug.compute → middleware.compute → core.compute
@@ -183,7 +185,35 @@ match value with
 | n when n < 0 -> "negative"
 | 0            -> "zero"
 | n            -> "positive"
+
+# Conditional (both branches required; the condition must be a boolean)
+if n < 0 then "negative" else "non-negative"
+
+# String interpolation
+"fib({n}) = {fib(n)}"
 ```
+
+### Strings and Interpolation
+
+Double-quoted strings interpolate `{expr}`: the expression is evaluated and its display form inserted.
+Strings are inserted as-is; lists and records use literal syntax (`[1, "a"]`, `{name: "Ada"}`).
+
+```layer
+let n = 5 in "n squared is {n * n}"   # → "n squared is 25"
+```
+
+Rules:
+
+- `{` starts an interpolation unless it is followed by whitespace, a quote, `\`, or `}` — so `"{ }"` and
+  JSON-like text such as `"{\"a\": 1}"` stay literal. `\{` is always a literal brace.
+- Inside `{…}`, use single-quoted strings: `"{str_concat('a', 'b')}"`.
+- Single-quoted strings never interpolate: `'{n}'` is the three characters `{n}`.
+- String *patterns* cannot contain interpolation.
+
+### Conditionals
+
+`if <cond> then <a> else <b>` is an expression. `if`, `then` and `else` are soft keywords. Only the taken
+branch is evaluated; a non-boolean condition is a runtime error.
 
 ### Data Types
 
@@ -241,6 +271,8 @@ f(1, 100)  # → 111
 Partial application composes naturally with `map`, `filter`, and `fold`:
 
 ```layer
+fn lt(a, b) = a < b
+
 map(add(1, ?),   [10, 20, 30])      # → [11, 21, 31]
 filter(lt(?, 5), [1, 3, 7, 2, 8])  # → [1, 3, 2]
 ```
@@ -390,31 +422,40 @@ The `@layers` directive **enables** specific layers and sets their **order**. On
 @layer ui {
   # UI layer can reference core functions
   fn render_result(n) =
-    view {
-      text: "Factorial of {n} is {factorial(n)}"
-    }
+    view({ children: [text("Factorial of {n} is {factorial(n)}")] })
 }
 
 @layer debug {
-  # Debug layer can wrap core functions
-  fn factorial(n) = {
-    log("Computing factorial of {n}")
-    let result = core.factorial(n) in {
-      log("Result: {result}")
+  # Debug layer can wrap core functions.
+  # A function body is ONE expression: sequence steps with `let _ = ... in`.
+  fn factorial(n) =
+    let _ = log("Computing factorial of {n}") in
+    let result = core.factorial(n) in
+    let _ = log("Result: {result}") in
       result
-    }
-  }
 }
 
-# data layer is defined but NOT enabled
-@layer data {
-  fn save_result(n, result) = ...
+# Declared but NOT listed in @layers: inactive ("hidden")
+@layer audit {
+  fn save_result(n, result) = result
 }
 
-# Calling data.save_result() will fail - layer not enabled!
+# audit.save_result(1, 1) is rejected: layer 'audit' is not active
 ```
 
 **Important**: You can define layers in `@layer` blocks but they're only active if listed in `@layers [...]`.
+
+**A layer body contains only `fn` definitions.** Anything else is a parse error — most often the tail of the
+previous function written as if it were a statement:
+
+```layer
+fn f(x) =
+  let r = g(x) in
+  log(r)
+  r          # ✗ parsed as a separate definition → "expected 'fn' in @layer block"
+```
+
+Write it as one expression: `let r = g(x) in let _ = log(r) in r`.
 
 ### Main Expression
 
@@ -1075,7 +1116,9 @@ When the cache has a value:
 fetch("mykey")  # → Some("from_cache") — core is never called
 ```
 
-**Error behaviour**: if a layer errors (calls an undefined function, etc.), it is skipped and the next layer down is tried. If all layers return `None`, `None` is returned. If all layers error, the last error is returned. A layer that succeeds with `None` always takes precedence over a layer that errored.
+**Error behaviour**: if a layer fails at runtime, it is skipped and the next layer down is tried — and a
+`[WARN] fallback: <layer>.<name> failed, trying the next layer: <error>` line is logged, so a bug in a cache
+layer is visible instead of silently looking like a cache miss. If all layers return `None`, `None` is returned. If all layers error, the last error is returned. A layer that succeeds with `None` always takes precedence over a layer that errored.
 
 Useful for **layered caching**, **feature flags**, or any **try-first pattern**.
 
@@ -2011,7 +2054,17 @@ When UI components render, all input fields are tracked in a state object. The `
 1. Visual editor extracts all `input` components and their `name` properties
 2. Creates a state object: `{ x: "", y: "" }`
 3. Updates state when user types
-4. Evaluates `onclick` expression with state values injected as variables
+4. Evaluates the `onclick` expression on top of the current layer stack, with each input bound as a
+   top-level variable (`type: "number"` inputs as numbers, others as strings). Values are passed as data,
+   not spliced into source text.
+
+**Routing a result into an input**: by default a button's result is shown below the UI. Add
+`target: "<input name>"` to write it into that input instead — e.g. a calculator display:
+
+```layer
+input({name: "display", placeholder: "0"}),
+button({label: "7", onclick: "append_digit(display, '7')", target: "display"})
+```
 
 ### Complete Example
 
@@ -2331,11 +2384,28 @@ debug.log(data.unwrap(username, "No user"))
 
 ## Execution Model
 
-1. Parse Layer source file
+1. Parse Layer source file (one main expression at most; trailing tokens are an error)
 2. Evaluate `if <expr>` conditions in `@layers`; exclude disabled layers
 3. Build layer stack from the remaining enabled layers (core always at bottom)
 4. Evaluate each enabled layer's definitions in order
-5. Execute main expression with composed layer context
+5. **Static checks** over every function body and the main expression, before anything runs:
+   undefined names, references to unknown or inactive layers (`audit.f` when `audit` is hidden), missing
+   members (`core.fibb`), and purity violations — including in branches that would never execute. All
+   problems are reported together, each with a line and column.
+6. Execute main expression with composed layer context
+
+### Runtime errors
+
+Runtime errors carry the line and column of the failing expression and the chain of Layer functions that were
+running, innermost first, with recursion compressed:
+
+```
+runtime error at 4:31: operator + needs two numbers or two strings, got integer and string
+  in (core.factorial ← debug.factorial) ×6
+```
+
+Recursion deeper than 100,000 calls (20,000 in the browser) stops with
+`maximum call depth exceeded` instead of crashing the interpreter.
 
 ## File Format
 
@@ -2353,7 +2423,10 @@ myprogram.layer
 - ~~Layer introspection~~ ✅ implemented — see [Layer Introspection](#layer-introspection)
 - ~~Conditional layer activation~~ ✅ implemented — see [Conditional Layer Activation](#conditional-layer-activation)
 - Flatten operation — merge a layer stack into a single resolved layer
-- Layer effect types and purity enforcement (see [Layer Purity System](#layer-purity-system))
+- ~~Layer purity enforcement~~ ✅ implemented, statically and at runtime — see [Layer Purity System](#layer-purity-system)
+- Per-function blend modes (today the mode applies to every name defined in more than one layer)
+- A defined interaction between `chain` and open recursion (today the chain is re-applied at every
+  recursive call, like override's open recursion)
 - Hot reloading of individual layers
 - Layer versioning and compatibility
-- Visual layer diff view in the editor
+- ~~Visual layer diff view in the editor~~ ✅ implemented

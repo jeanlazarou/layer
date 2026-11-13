@@ -1,250 +1,117 @@
 # Layer Language Architecture
 
-## Overview
+Layer is a tree-walking interpreter written in Go. The same packages are built natively (the `layer` CLI)
+and to WebAssembly (the visual editor).
 
-Layer is implemented as a tree-walk interpreter written in Go and compiled to WebAssembly. The architecture follows a traditional compiler pipeline with additional support for layer composition.
-
-## Components
-
-### 1. Lexer (`layer-go/pkg/lexer`)
-
-The lexer performs tokenization of Layer source code.
-
-**Responsibilities:**
-- Convert source text into tokens
-- Handle comments
-- Recognize keywords, operators, and literals
-- Track line and column numbers for error reporting
-
-**Key Features:**
-- Support for Unicode lambda symbol (λ)
-- String interpolation preparation
-- Multi-character operators (→, ==, !=, etc.)
-
-### 2. Parser (`layer-go/pkg/parser`)
-
-The parser builds an Abstract Syntax Tree (AST) from tokens.
-
-**Responsibilities:**
-- Recursive descent parsing
-- Operator precedence handling
-- Pattern matching syntax
-- Layer directive parsing
-
-**Key Features:**
-- Precedence climbing for binary operators
-- Pattern matching with destructuring
-- Record and list literals
-- Function definitions with parameters
-
-### 3. AST Nodes (`layer-go/pkg/ast`)
-
-Defines all AST node types using Go structs.
-
-**Node Categories:**
-- Literals: Numbers, strings, booleans, lists, records, tuples
-- Variables: Identifiers, member access
-- Functions: Lambda, function definitions, function calls
-- Control flow: Let bindings, pattern matching
-- Operators: Binary and unary operations
-- Layers: Layer declarations and directives
-
-### 4. Layer System (`layer-go/pkg/layers`)
-
-Manages layer composition and function resolution.
-
-**LayerContext** (`layer-go/pkg/layers/layer_context.go`):
-- Maintains layer stack (bottom to top)
-- Resolves function lookups across layers
-- Supports layer-specific lookups (e.g., `core.factorial`)
-- Enables layer override behavior
-
-**Built-in Layers:**
-
-**Core Layer** (`layer-go/pkg/interpreter/core_layer.go`):
-- Always enabled
-- Provides fundamental operations
-- Arithmetic, comparison, logical operators
-- List operations: map, filter, reduce, etc.
-- String operations
-
-**Debug Layer** (`layer-go/pkg/interpreter/debug_layer.go`):
-- Logging and tracing
-- Function call inspection
-- Benchmarking
-- Assertions
-
-**UI Layer** (`layer-go/pkg/interpreter/ui_layer.go`):
-- Declarative UI components
-- Component tree building
-- Rendering abstraction
-- XML output for visual editor
-
-**Data Layer** (`layer-go/pkg/interpreter/data_layer_wasm.go`):
-- File I/O (via browser localStorage)
-- JSON operations
-- Option pattern for error handling
-
-### 5. Interpreter (`layer-go/pkg/interpreter/interpreter.go`)
-
-Evaluates AST nodes in the context of layers.
-
-**Responsibilities:**
-- AST evaluation
-- Environment management
-- Pattern matching implementation
-- Closure creation and execution
-- Layer composition resolution
-
-**Key Features:**
-- Lexical scoping with closures
-- Pattern matching with destructuring
-- Layer-aware function lookup
-- Recursive evaluation
-
-### 6. CLI Tools
-
-**CLI** (`layer-go/cmd/layer/main.go`):
-- File execution
-- REPL mode
-- Error handling and reporting
-
-**WASM Interface** (`layer-go/cmd/wasm/main.go`):
-- WebAssembly exports for browser
-- JavaScript interop
-- Browser file system integration
-
-## Execution Flow
+## Pipeline
 
 ```
-Source Code
-    ↓
-[Lexer]
-    ↓
-Tokens
-    ↓
-[Parser]
-    ↓
-AST (Program node)
-    ↓
-[Interpreter]
-    ↓
-1. Parse @layers directive
-2. Enable specified layers
-3. Evaluate @layer declarations
-4. Execute main expression
-    ↓
-Result
+source text
+  │  pkg/lexer        tokens; double-quoted strings with {expr} become TEMPLATE tokens
+  ▼
+tokens
+  │  pkg/parser       recursive descent + precedence climbing; desugars f(a, ?) into a lambda
+  ▼
+AST (pkg/ast)         Program = @layers directive + @layer declarations + one main expression
+  │
+  │  Interpreter.Load (pkg/interpreter)
+  │    1. evaluate @layers conditions, enable listed layers (core is always first/bottom)
+  │    2. apply purity annotations (@layer<impure>)
+  │    3. evaluate each active layer's fn definitions into closures
+  │    4. static checks (check.go): undefined names, unknown/inactive layers,
+  │       missing members, purity violations — every function body, all at once
+  ▼
+  │  Interpreter.Execute: evaluate the main expression
+  ▼
+result value + log lines, or a located error
 ```
 
-## Layer Composition
+`pkg/runner` wraps the whole pipeline (`Run`, `Describe`) and converts any failure into located `Issue`s
+(`lexer | parser | check | runtime | internal`). It recovers from interpreter panics, which matters under
+WebAssembly where a panic would end the Go runtime for every later call. The CLI, the WASM bridge and the
+tests all go through it.
 
-Layers are stacked from bottom to top:
+## Packages
 
-```
-┌─────────────────┐
-│   Debug Layer   │ ← Can wrap core functions
-├─────────────────┤
-│   Data Layer    │ ← File I/O, JSON, localStorage
-├─────────────────┤
-│   UI Layer      │ ← Can use core functions
-├─────────────────┤
-│   Core Layer    │ ← Base functionality (always enabled)
-└─────────────────┘
-```
+| Package | Role |
+|---|---|
+| `pkg/lexer` | Tokens with line/column. Soft keywords (`if`, `then`, `else`, `when`, `blend`) stay identifiers. |
+| `pkg/parser` | AST construction. Layer bodies accept only `fn` definitions; a program has one main expression. |
+| `pkg/ast` | Node types. |
+| `pkg/layers` | `LayerContext`: layer order, definitions per layer, purity flags, blend mode, lookups. |
+| `pkg/interpreter` | Evaluation, built-in layers, static checks, errors, display (`Show`), stack description. |
+| `pkg/runner` | End-to-end runs with structured results. |
+| `pkg/sourcefile` | Splits a `.layer` file into editor parts (per-layer code, purity, blend mode, main). |
+| `cmd/layer` | CLI: `layer run [-D name=value] file`, `layer check file`. |
+| `cmd/wasm` | WebAssembly exports returning JSON: `executeLayer`, `describeLayer`, `parseLayerFile`. |
 
-**Function Resolution:**
-1. Check local environment (let bindings, parameters)
-2. Search layers from top to bottom
-3. Return first match found
+## Name resolution
 
-**Layer Override:**
-```layer
-@layer core {
-  fn factorial(n) = ...  # Original definition
-}
+1. Local environment (parameters, `let`, pattern bindings, variables seeded with `SetVar`/`-D`).
+2. The layer stack, top to bottom, combined according to the blend mode:
+   - `override`: the topmost definition.
+   - `chain`: bottom definition first, each higher one receives the previous result as its first argument.
+   - `collect`: every definition, results as a list (top first).
+   - `fallback`: top-down, first result that is not `None`; failing layers are skipped with a `[WARN]` log.
 
-@layer debug {
-  fn factorial(n) =
-    let _ = log("Called") in
-      core.factorial(n)  # Explicitly call core version
-}
-```
+`layer.name` (e.g. `core.fib`) reads one layer directly. Unqualified calls are late-bound, so recursion inside
+a lower layer re-enters the top of the stack (open recursion); qualified recursion stays inside the layer.
 
-## Type System (Future)
+With an `@layers` directive, declared but unlisted layers are inactive; their definitions are never loaded.
 
-The language specification includes a Hindley-Milner type system, but type inference is not yet implemented. Current implementation uses dynamic typing.
+## Purity
 
-## Pattern Matching
+`core` and custom layers are pure, `ui`/`debug`/`data` impure (a few `data` helpers such as `Some`/`None` are
+pure exceptions), and `@layer<impure> name` opts a custom layer in. A pure layer may not reference a name
+defined only in impure layers, nor `impure.name` explicitly. This is checked statically before execution and
+again at runtime. An impure layer *wrapping* a pure function is allowed: pure code cannot request effects,
+but the outer program may observe it.
 
-Pattern matching is implemented via the `matchPattern` method in the interpreter:
+## Values
 
-**Supported Patterns:**
-- Literal patterns: `0`, `"hello"`
-- Variable binding: `n`, `x`
-- Wildcard: `_`
-- List patterns: `[a, b, ...rest]`
+Go values represent Layer values: `int64`, `float64`, `string`, `bool`, `[]interface{}` (lists and tuples),
+`map[string]interface{}` (records; Options are `{type: "Some", value}` / `{type: "None"}`), `*Closure`, Go
+built-ins `func(...interface{}) (interface{}, error)`, and `*UIComponent`. `Show` renders them in Layer
+literal syntax for results, logs and interpolation; `typeName` names their type in error messages.
 
-**Future Patterns:**
-- Record patterns: `{name: n, age: a}`
-- Tuple patterns: `(x, y, z)`
-- Type patterns
+`Closure` holds parameters, body, captured environment, the defining layer (for purity), an optional name
+(for traces), and optionally a `Native` Go implementation (used by `compose`, `const`, `trace`, `benchmark`).
 
-## Closures
+## Errors
 
-Functions in Layer are closures that capture their environment:
+- Lexer/parser errors: `… error at line:col: message`.
+- Static check errors: a `*CheckError` with one positioned issue per problem.
+- Runtime errors: `*RuntimeError` with the position of the failing expression (errors from Go built-ins are
+  positioned at their call site) and the trace of named Layer functions, innermost first, with recursion
+  compressed: `(core.fact ← debug.fact) ×5`.
+- Recursion is bounded (`MaxCallDepth`): 100,000 natively, 20,000 under WebAssembly.
 
-```go
-type Closure struct {
-    Params      []string           // Parameter names
-    Body        ast.Node           // Function body AST
-    Env         map[string]interface{} // Captured environment
-    Interpreter *Interpreter       // Reference to interpreter
-}
-```
+## Output
 
-When a closure is called:
-1. Create new environment from captured environment
-2. Bind arguments to parameters
-3. Evaluate body in new environment
+Built-ins never print. `log`, `trace`, `inspect`, `print`, `assert_equal`, `benchmark` and fallback warnings
+call `Interpreter.emit`, which stores the line (see `Logs()`, `get_logs()`) and forwards it to `LogSink`:
+stderr in the CLI, collected into the result for the editor.
 
-## Error Handling
+## WebAssembly
 
-All errors include position information (line, column):
-- **Lexer errors**: Invalid characters, unterminated strings
-- **Parser errors**: Unexpected tokens, syntax errors
-- **Runtime errors**: Type errors, undefined variables, pattern match failures
+`./build-wasm.sh` builds `cmd/wasm` and copies the matching `wasm_exec.js` (from `$GOROOT/lib/wasm`) into
+`visual-editor/frontend/public/`. The browser's native call stack (~1 MB) is much smaller than Go's: Go
+functions are WebAssembly functions, so deep Layer recursion used to overflow it at ~2,000 calls and kill the
+Go runtime. Go's wasm port unwinds the native stack whenever a goroutine parks, so `Closure.Call` evaluates on
+a fresh goroutine every 200 calls (`limits_js.go`), which bounds native stack use regardless of depth.
 
-## WebAssembly Architecture
+The data layer's WebAssembly build stores files in `localStorage` (or a real directory through the File System
+Access API) via `visual-editor/frontend/src/wasm/browserFileSystem.ts`.
 
-The Go interpreter is compiled to WebAssembly for browser execution:
+## Visual editor
 
-**Compilation:**
-```bash
-cd layer-go
-GOOS=js GOARCH=wasm go build -o layer.wasm ./cmd/wasm
-```
+React + MUI + Monaco (`visual-editor/frontend`). Editor state (layers top-first, main expression, blend mode)
+is assembled into a program by `src/program.ts`, which also maps interpreter positions back to a layer and
+line. `describeLayer` runs on every edit (debounced) for live diagnostics and the "who answers each call?"
+panel; `executeLayer` runs programs and UI button handlers (input values passed as JSON variables). See
+[visual-editor/README.md](../visual-editor/README.md).
 
-**Browser Integration:**
-- WASM module loaded in React frontend
-- JavaScript interop via `syscall/js` package
-- File I/O through browser localStorage
-- Synchronous operations to avoid WASM event loop deadlocks
+## Not implemented
 
-**Performance:**
-- Near-native execution speed
-- ~3MB WASM binary
-- No network latency (runs locally)
-- Offline-capable
-
-## Future Enhancements
-
-1. **Purity Enforcement**: `@layer<pure>` vs `@layer<impure>` markers (see LANGUAGE_SPEC.md)
-2. **Type Inference**: Hindley-Milner type checking
-3. **Module System**: Import/export between files
-4. **Effect System**: Track and manage side effects
-5. **Optimization**: Bytecode compilation, JIT
-6. **Visual Editor Enhancements**: Photoshop-like layer UI
-7. **Hot Reloading**: Live layer updates
-8. **Debugger**: Step-through execution, breakpoints
-9. **Package Manager**: Layer package ecosystem
+Type inference (Hindley-Milner is specified in LANGUAGE_SPEC.md only), modules, a REPL, per-function blend
+modes, tuple patterns, and running programs off the browser's main thread.

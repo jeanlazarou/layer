@@ -46,6 +46,36 @@ func TestExamples(t *testing.T) {
 	}
 }
 
+var layerBlock = regexp.MustCompile("(?s)```layer\n(.*?)```")
+
+// TestReadmePrograms runs every complete program (a ```layer block that
+// starts with @layers) in README.md, so the front page never shows code
+// that does not work.
+func TestReadmePrograms(t *testing.T) {
+	readme, err := os.ReadFile(filepath.Join(repoRoot, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, m := range layerBlock.FindAllSubmatch(readme, -1) {
+		block := string(m[1])
+		if !strings.HasPrefix(strings.TrimSpace(block), "@layers") {
+			continue
+		}
+		count++
+		file := filepath.Join(t.TempDir(), "readme.layer")
+		if err := os.WriteFile(file, []byte(block), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if code, _, stderr := runCLI(t, "run", file); code != 0 {
+			t.Errorf("README program %d failed:\n%s\n--- program ---\n%s", count, stderr, block)
+		}
+	}
+	if count == 0 {
+		t.Fatal("no complete programs found in README.md")
+	}
+}
+
 func writeProgram(t *testing.T, src string) string {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "p.layer")

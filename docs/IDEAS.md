@@ -23,7 +23,8 @@ Syntax ideas:
 }
 ```
 
-This is the single most unique feature of the language — no other language does this.
+This is the most distinctive feature of the language. CLOS method combination is the closest precedent, but
+there the combination belongs to the generic function; here it belongs to the stack (see POSITIONING.md).
 
 ---
 
@@ -144,14 +145,46 @@ Turns the visual editor into a powerful teaching and debugging tool.
 
 ---
 
-## Implementation Priority
+## Implementation Status
 
-1. **Guard clauses** — unblocks writing real programs today
-2. **Record pattern matching** — natural companion to guard clauses
-3. **Layer blend modes** — the novel contribution that differentiates the language
-4. **Layer introspection** — makes the layer concept tangible and inspectable
-5. **Conditional layer activation** — makes layers dynamic
-6. **Flatten operation** — optimization + understanding
-7. **Effect types on layers** — the deep theoretical work
-8. ~~**Visual editor diff view**~~ ✅ implemented — diff pills on selected layer card in LayerStack
-9. ~~**Partial application (`?` holes)**~~ ✅ implemented — `f(a, ?)` desugars to a lambda at parse time; `?` vs `_` distinction avoids pattern-match ambiguity
+1. ~~**Guard clauses**~~ ✅ implemented
+2. ~~**Record pattern matching**~~ ✅ implemented
+3. ~~**Layer blend modes**~~ ✅ implemented (global per stack — see open question A)
+4. ~~**Layer introspection**~~ ✅ implemented (`@which`, `@inspect`, `@diff`)
+5. ~~**Conditional layer activation**~~ ✅ implemented (`debug if env == "dev"`; CLI `-D env=dev`). Scoped
+   activation (`with_layers(...)`) is not.
+6. **Flatten operation** — not started
+7. ~~**Effect types on layers**~~ ✅ pure/impure split implemented, checked statically and at runtime
+   (`@layer<impure>`). Finer-grained effects (io vs state) are not.
+8. ~~**Visual editor diff view**~~ ✅ implemented — diff pills on the selected layer card, plus the
+   "who answers each call?" panel
+9. ~~**Partial application (`?` holes)**~~ ✅ implemented
+
+## Open design questions
+
+These are language-design decisions, deliberately left open rather than picked by default.
+
+**A. Per-function blend modes.** Today `blend:` applies to every name defined in more than one layer, so a
+program cannot use `fallback` for `fetch` and `collect` for `notify` at the same time. Candidate syntaxes:
+
+```layer
+@layers [core, cache, audit] blend: {fetch: fallback, notify: collect}   # per name, in the directive
+@layer cache blend: fallback { ... }                                      # per layer (ambiguous: which pairs?)
+@blend fallback fn fetch(key) = ...                                       # on the definition
+```
+
+The directive form keeps the "composition decides, not the function" property that makes blend modes novel.
+
+**B. Chain × open recursion.** With `blend: chain`, an unqualified recursive call inside the bottom layer
+re-enters the whole chain, so `f(2)` with `core: f(n) = 1 + f(n-1)` and `scale: f(x) = x * 10` is 110, not 20
+(locked by `TestChainReappliesAtEveryRecursiveCall`). That is consistent with override's open recursion but
+rarely what a pipeline means. Options: keep it (and document qualified recursion as the fix), or make the
+chain apply only at the outermost call.
+
+**C. A UI model.** The UI layer is a view function plus `onclick` strings evaluated against input values.
+An Elm-style `init / update(msg, model) / view(model)` would fit a pure language better: state lives in Layer,
+handlers are values instead of strings, and the pure/impure split maps naturally (view and update pure, the
+runtime impure).
+
+**D. Off-main-thread execution.** The editor runs programs on the browser's main thread; a long computation
+freezes the page. Running the WASM module in a Web Worker would allow a "stop" button.

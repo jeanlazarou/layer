@@ -9,24 +9,19 @@
 ### Native CLI
 
 ```bash
-# Build
-go build ./cmd/layer
+go run ./cmd/layer run ../examples/fibonacci.layer      # run; logs on stderr, result on stdout
+go run ./cmd/layer check ../examples/calculator.layer   # load + static checks, no main expression
+go run ./cmd/layer run -D env=dev app.layer             # seed variables for @layers conditions
 
-# Run a Layer program
-./layer ../examples/calculator.layer
-
-# REPL (coming soon)
-./layer
+go build -o layer ./cmd/layer                           # or build a binary
 ```
 
 ### WebAssembly
 
 ```bash
-# Build WASM module
+# Builds ../visual-editor/frontend/public/layer.wasm and the matching wasm_exec.js
 ./build-wasm.sh
-
-# Deploy to visual editor
-cp layer.wasm ../visual-editor/frontend/public/
+node test_wasm_node.js      # smoke test of the JSON API the editor uses
 
 # The visual editor will automatically use the WASM interpreter
 ```
@@ -92,9 +87,13 @@ layer-go/
 │   │   ├── data_layer_wasm.go     # Browser file I/O
 │   │   ├── debug_layer.go
 │   │   └── ui_layer.go
-│   └── layers/         # Layer context management
+│   ├── layers/         # Layer context management
+│   ├── runner/         # End-to-end runs with structured, located errors
+│   └── sourcefile/     # Splits .layer files for the editor
+├── cmd/layer/          # CLI
+├── cmd/wasm/           # WebAssembly exports
 ├── build-wasm.sh       # WASM build script
-└── layer.wasm          # Compiled WASM module (4.3 MB)
+└── test_wasm_node.js   # WASM smoke test
 ```
 
 ### Execution Pipeline
@@ -118,7 +117,7 @@ The implementation uses Go build tags for platform-specific code:
 
 ```go
 // data_layer_native.go
-//go:build !js && !wasm
+//go:build !(js && wasm)
 
 // data_layer_wasm.go
 //go:build js && wasm
@@ -129,17 +128,10 @@ The implementation uses Go build tags for platform-specific code:
 ## Testing
 
 ```bash
-# Run all tests
-go test ./pkg/...
-
-# Run specific test
-go test ./pkg/interpreter -run TestStringConcatenation -v
-
-# With coverage
-go test ./pkg/... -cover
+go test ./...                                   # all packages, every example, every README program
+go test ./pkg/interpreter -run TestInterpolation -v
+go test ./... -cover
 ```
-
-**Current status**: 22/22 tests passing ✅
 
 ---
 
@@ -151,9 +143,9 @@ go test ./pkg/... -cover
 ./build-wasm.sh
 ```
 
-This produces:
-- `layer.wasm` (4.3 MB) - The interpreter compiled to WebAssembly
-- Automatically deployed to `../visual-editor/frontend/public/`
+This writes `layer.wasm` (about 4.6 MB) and the matching `wasm_exec.js` to
+`../visual-editor/frontend/public/`. Under WebAssembly, deep recursion hops to a fresh goroutine every 200
+calls so the browser's small native stack never overflows (see `pkg/interpreter/limits_js.go`).
 
 ### Browser Integration
 
@@ -181,10 +173,8 @@ The WASM module integrates with the browser through:
 
 ### Performance
 
-- **Load time**: < 1 second (4.3 MB gzipped)
-- **Execution**: ~10x faster than Python implementation
-- **File I/O** (virtual mode): < 10ms per operation
-- **File I/O** (real mode): < 100ms per operation
+Not benchmarked. The interpreter is a straightforward tree walker that copies environments on each call;
+it is fast enough for the examples and the editor, not for heavy computation.
 
 ---
 

@@ -1,48 +1,26 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-venv/
-ENV/
-env/
-
-# IDE
-.vscode/
+# OS / editors
+.DS_Store
+Thumbs.db
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
+# Go build outputs (layer-go/build-wasm.sh writes the WASM module straight
+# into visual-editor/frontend/public/, which is committed so the editor runs
+# without a Go toolchain)
+/layer-go/layer
+/layer-go/layer.wasm
+/layer-go/wasm_exec.js
+*.test
+*.out
 
-# OS
-.DS_Store
-Thumbs.db
+# Node
+node_modules/
 
-# Layer example outputs
+# Files written by the data layer when running examples
 test_output.txt
 users.json
 results.json
-*.layer.out
+notes.txt

@@ -1,372 +1,190 @@
-# Layer Programming Language
+# Layer
 
-**A purely functional language with practical effect management through spatial layer composition**
+**An experimental functional language where a program is a stack of layers, like layers in an image editor.**
 
-Layer is a functional programming language that makes the distinction between pure and impure code explicit through a spatial organization system. Like Photoshop's layer system for images, Layer allows you to stack different aspects of your program (business logic, UI, debugging, I/O) in visually separate layers.
-
-## Philosophy
-
-> **Maximize purity where it matters, isolate effects where they're necessary.**
-
-Layer doesn't try to eliminate side effects (impossible!), but provides **spatial separation** through layers that makes effects explicit while keeping business logic pure.
-
-See [PHILOSOPHY.md](PHILOSOPHY.md) for the complete rationale.
-
-## Key Features
-
-- **Purely Functional Core**: Immutable data, first-class functions, no side effects
-- **Layer-Based Architecture**: Spatial separation of pure and impure code
-- **Expression-Based**: Everything is an expression, no statements
-- **Pattern Matching**: Expressive destructuring and control flow
-- **Layer Override**: Higher layers can wrap or transform lower layer functions
-- **WebAssembly**: Runs in browser without server (4.3 MB)
-- **Interactive UI**: UI layer renders as actual React components
-
-## Quick Example
+You write pure logic once, in `core`. Logging, caching, validation, UI and I/O live in layers stacked on top that
+wrap or replace functions below them. Hiding, reordering or re-blending layers changes what the program does
+without editing the code inside them, and the visual editor makes that stack the main thing you look at.
 
 ```layer
-@layers [core, ui, debug]
+@layers [core, debug]
 
 @layer core {
-  # Pure business logic
-  fn fibonacci(n) =
+  # Pure business logic. Knows nothing about logging.
+  fn fib(n) =
     match n with
     | 0 -> 0
     | 1 -> 1
-    | n -> fibonacci(n - 1) + fibonacci(n - 2)
+    | n -> fib(n - 1) + fib(n - 2)
 }
 
 @layer debug {
-  # Wrap pure function with logging (effect)
-  fn fibonacci(n) =
-    let result = core.fibonacci(n) in
-    debug.log("fib({n}) = {result}")
-    result
+  # Wraps core.fib without touching it.
+  fn fib(n) =
+    let _ = log("fib({n})") in
+      core.fib(n)
 }
 
-@layer ui {
-  # Interactive UI (effect)
-  fn app() = view({
-    title: "Fibonacci Calculator",
-    children: [
-      input({name: "n", placeholder: "Enter number", type: "number"}),
-      button({label: "Calculate", onclick: "fibonacci(n)"})
-    ]
-  })
-}
+fib(4)
 ```
 
-**Result**: 90% pure code (core layer), 10% effects (ui/debug layers) ✅
-
-## Available Layers
-
-- **core** - Pure functional primitives (36 functions)
-- **ui** - User interface components (renders as React)
-- **debug** - Logging, tracing, benchmarking (8 functions)
-- **data** - File I/O, JSON, localStorage (21 functions)
-
-## Installation & Quick Start
-
-### Browser (Visual Editor - No Installation!)
-
-The visual editor runs entirely in your browser using WebAssembly:
-
-```bash
-cd visual-editor/frontend
-npm install
-npm run dev
+```console
+$ layer run fib.layer
+[INFO] fib(4)
+[INFO] fib(3)
+[INFO] fib(2)
+...
+3
 ```
 
-Open http://localhost:5173 - **No backend needed!**
+The recursive call inside `core.fib` is unqualified, so it goes back through the top of the stack: the debug
+layer sees **every** level of the recursion (open recursion, like `this.method()`). Remove `debug` from
+`@layers` and the same core code runs silently. `core.fib(n)` is the explicit "call the layer below" escape hatch.
 
-### Native CLI
+![The visual editor: the layer stack on the left, the debug layer wrapping core.factorial, and the
+"who answers each call?" view on the right](docs/images/editor.png)
+
+## Try it
+
+**Online playground:** https://jeanlazarou.github.io/layer/ (built from `main` by
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml)). Pick a program from the Examples menu, toggle
+layers on and off, and watch the output change.
+
+**Locally:**
 
 ```bash
+# Editor (needs Go to build the interpreter to WebAssembly, and Node + pnpm)
+cd layer-go && ./build-wasm.sh
+cd ../visual-editor/frontend && pnpm install && pnpm dev     # http://localhost:5173
+
+# Command line
 cd layer-go
-go build ./cmd/layer
-./layer ../examples/calculator.layer
+go run ./cmd/layer run ../examples/fibonacci.layer
+go run ./cmd/layer check ../examples/calculator.layer         # static checks only
+go run ./cmd/layer run -D env=dev app.layer                    # for @layers [core, debug if env == "dev"]
 ```
 
-## Implementation
+## What's different
 
-Layer is implemented in **Go** with compilation to both:
-- **Native binaries** - For CLI and server use
-- **WebAssembly** - For browser execution
+Layer borrows from context-oriented programming, aspects, CLOS method combination and middleware stacks
+([docs/POSITIONING.md](docs/POSITIONING.md) compares them in detail). Three ideas are its own:
 
-**Previous Python implementation is deprecated** - Go is the primary and only maintained version.
+1. **Blend modes.** How definitions from different layers combine is a property of the *stack*, not of the
+   functions: `override` (default), `chain` (pipe results upward), `collect` (call all, return a list),
+   `fallback` (first result that isn't `None`).
 
-### Why Go?
+   ```layer
+   @layers [core, data, database, cache] blend: fallback
 
-1. **Performance**: 10x faster than Python
-2. **WebAssembly**: Runs in browser without backend
-3. **Type Safety**: Easier to maintain and extend
-4. **Deployment**: Single binary, no dependencies
-5. **Portability**: Same code runs CLI, server, and browser
+   @layer database {
+     fn fetch(key) = data.Some("computed:{key}")
+   }
 
-## Running Layer Programs
+   @layer<impure> cache {
+     fn fetch(key) = data.get(key)
+   }
 
-### Browser (Recommended)
+   let _ = data.set("greeting", "cached hello") in
+   [fetch("greeting"), fetch("other")]
+   # → [Some("cached hello"), Some("computed:other")]
+   ```
 
-```bash
-cd visual-editor/frontend
-npm run dev
-```
+2. **Purity is a property of where code lives.** `core` and custom layers are pure; `ui`, `debug` and `data`
+   are impure, and custom layers opt in with `@layer<impure>`. A pure layer cannot reference an effect, and
+   this is checked *before* the program runs, including branches that would never execute:
 
-- Open example files (calculator, data_demo, debug_trace)
-- Write code with Monaco editor
-- See interactive UI rendered in real-time
-- Files stored in localStorage (virtual mode) or real file system (Chrome/Edge)
+   ```layer
+   # Rejected before running:
+   @layers [core, debug]
+   @layer core {
+     fn area(r) = if r < 0 then log("negative radius") else 3.14159 * r * r
+   }
+   area(2)
+   # check error at 3:30: purity violation: pure layer 'core' cannot call 'log',
+   #   which is only defined in impure layer 'debug'
+   ```
 
-### Native CLI
+   Impure layers above may still *wrap* pure functions (that is how the tracing above works): pure code
+   cannot request effects, but the outer program may observe it.
 
-```bash
-cd layer-go
-go build ./cmd/layer
+3. **The stack is the architecture you look at.** The editor shows the layers as the main panel, a
+   "who answers each call?" view, and live diagnostics. Inside the language, `@which fib`, `@inspect debug`
+   and `@diff core debug` query the stack.
 
-# Run examples
-./layer ../examples/calculator.layer
-./layer ../examples/fibonacci.layer
-./layer ../examples/data_demo.layer
-```
-
-### REPL (Coming Soon)
-
-```bash
-./layer
-> let x = 5 in x * 2
-10
-```
-
-## Project Structure
-
-```
-layer/
-├── PHILOSOPHY.md              # Language design philosophy
-├── LANGUAGE_SPEC.md           # Complete language specification
-├── examples/                  # Example Layer programs
-│   ├── calculator.layer       # Interactive calculator
-│   ├── fibonacci.layer        # Recursion example
-│   ├── data_demo.layer        # File I/O and JSON
-│   └── debug_trace.layer      # Tracing and debugging
-├── layer-go/                  # Go implementation (PRIMARY)
-│   ├── cmd/layer/             # Native CLI
-│   ├── cmd/wasm/              # WebAssembly entry point
-│   ├── pkg/
-│   │   ├── lexer/             # Tokenization
-│   │   ├── parser/            # Parsing
-│   │   ├── interpreter/       # Evaluation + layers
-│   │   └── layers/            # Layer system
-│   ├── build-wasm.sh          # Build WASM
-│   ├── layer.wasm             # Compiled WASM (4.3 MB)
-│   ├── README.md              # Go implementation details
-│   ├── CHANGELOG.md           # Implementation history
-│   └── TESTING_GUIDE.md       # How to test everything
-├── visual-editor/             # Visual editor (React + Vite)
-│   └── frontend/
-│       ├── src/
-│       │   ├── components/    # Monaco, UI preview, etc.
-│       │   └── wasm/          # WASM loader + browser FS
-│       └── public/
-│           └── layer.wasm     # Deployed WASM
-└── docs/                      # Additional documentation
-    ├── ARCHITECTURE.md
-    └── TUTORIAL.md
-```
-
-## Examples
-
-All examples work in both browser and CLI:
-
-### Calculator (`examples/calculator.layer`)
-Interactive calculator with buttons and display:
-- String concatenation for display
-- Pattern matching for operations
-- Renders as actual Material UI components
-
-### Data Demo (`examples/data_demo.layer`)
-File I/O, JSON, and localStorage:
-- Read/write files (virtual or real mode)
-- Parse and generate JSON
-- localStorage key-value storage
-
-### Debug Trace (`examples/debug_trace.layer`)
-Function tracing and debugging:
-- Trace recursive execution
-- Benchmark performance
-- Inspect values
-
-### Fibonacci (`examples/fibonacci.layer`)
-Classic recursion example:
-- Pattern matching
-- Pure functional style
-- Debug layer wrapping
-
-## Language Highlights
-
-### Expression-Based
-
-Everything is an expression:
+## The language in one screen
 
 ```layer
-# if is an expression
-let result = if x > 0 then "positive" else "negative" in result
+@layers [core]
 
-# match is an expression
-let category = match age with
-  | a when a < 18 -> "minor"
-  | a when a < 65 -> "adult"
-  | _ -> "senior"
-in category
-```
-
-### Immutability
-
-All bindings are immutable:
-
-```layer
-let x = 5 in
-let x = 10 in  # New binding, shadows previous
-x              # Returns 10
-```
-
-### let ... in Syntax
-
-Explicit scoping inspired by ML-family languages:
-
-```layer
-let a = 1 in
-let b = 2 in
-let c = a + b in
-c * 2  # Returns 6
-```
-
-**Why `in`?**
-- No semicolons needed
-- Whitespace-insensitive
-- Unambiguous grammar
-- Clear scope boundaries
-
-### Pattern Matching
-
-```layer
-fn describe(list) =
-  match list with
-  | [] -> "empty"
-  | [x] -> "one element"
-  | [x, y] -> "two elements"
-  | x::xs -> "many elements"
-```
-
-### Layer Override
-
-```layer
 @layer core {
-  fn greet(name) = "Hello, {name}"
+  fn sum(xs) =
+    match xs with
+    | []           -> 0
+    | [h, ...rest] -> h + sum(rest)
+
+  fn describe(p) =
+    match p with
+    | {name: n, age: a} when a >= 18 -> "{n} is an adult"
+    | {name: n}                      -> "{n} is a minor"
+
+  fn below(limit, x) = x < limit
 }
 
-@layer enthusiastic {
-  fn greet(name) = core.greet(name) ++ "!!!"
-}
-
-greet("World")  # "Hello, World!!!"
+let add10 = λ(x) -> x + 10 in
+[sum(map(add10, [1, 2, 3])), describe({name: "Ada", age: 36}), filter(below(3, ?), [1, 5, 2])]
+# → [36, "Ada is an adult", [1, 2]]
 ```
 
-## Documentation
+Functions, lambdas, `let … in`, `if … then … else`, pattern matching (lists, records, guards), string
+interpolation in double-quoted strings, and partial application with `?`. Everything is an expression; a
+function body is one expression (sequence steps with `let _ = step in next`). The complete reference is
+[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md), and [docs/TUTORIAL.md](docs/TUTORIAL.md) walks through it.
 
-- **[PHILOSOPHY.md](PHILOSOPHY.md)** - Why Layer is designed this way
-- **[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md)** - Complete syntax and semantics
-- **[layer-go/README.md](layer-go/README.md)** - Implementation details
-- **[layer-go/CHANGELOG.md](layer-go/CHANGELOG.md)** - Implementation history
-- **[layer-go/TESTING_GUIDE.md](layer-go/TESTING_GUIDE.md)** - How to test
-- **[visual-editor/README.md](visual-editor/README.md)** - Visual editor guide
-- **[docs/TUTORIAL.md](docs/TUTORIAL.md)** - Learn by example
+The `ui` layer returns declarative components (`view`, `text`, `button`, `input`, `row`, `column`) that the
+editor renders as live, interactive widgets. A button's `onclick` is a Layer expression evaluated on top of
+the current stack, with input values bound by name.
+
+## Status
+
+This is a research language, not a production tool. Implemented and covered by tests:
+
+- Tree-walking interpreter in Go, compiled natively (CLI) and to WebAssembly (editor)
+- Layers, open recursion, explicit layer access, conditional activation (`debug if env == "dev"`)
+- Blend modes: override, chain, collect, fallback
+- Purity: runtime enforcement plus a static check before execution
+- Static checks for undefined names and unknown/inactive layers, reported with positions
+- Runtime errors with positions and a Layer call trace; a recursion limit instead of a crash
+- Built-in `core`, `ui`, `debug` and `data` layers (the data layer uses an Option type)
+
+Not implemented: type inference (specified, not built), modules, a REPL, per-function blend modes.
+
+## Repository
+
+```
+examples/           runnable .layer programs (all run in CI; "# Result:" comments are checked)
+layer-go/           the interpreter
+  cmd/layer/        command-line runner
+  cmd/wasm/         WebAssembly bridge used by the editor
+  pkg/lexer, parser, ast, interpreter, layers, runner, sourcefile
+visual-editor/      React + Monaco editor; runs entirely in the browser
+docs/               tutorial, architecture, positioning, ideas
+LANGUAGE_SPEC.md    language reference
+PHILOSOPHY.md       design rationale
+```
 
 ## Development
 
-### Running Tests
-
 ```bash
 cd layer-go
-go test ./pkg/...              # All tests
-go test ./pkg/interpreter -v   # Interpreter tests
+go test ./...                 # interpreter, CLI, every example, and every program in this README
+./build-wasm.sh && node test_wasm_node.js   # WebAssembly build + smoke test
+
+cd ../visual-editor/frontend
+pnpm typecheck && pnpm lint && pnpm build
 ```
 
-**Current status**: 22/22 tests passing ✅
-
-### Building WASM
-
-```bash
-cd layer-go
-./build-wasm.sh
-# Outputs: layer.wasm (4.3 MB)
-# Auto-deploys to ../visual-editor/frontend/public/
-```
-
-### Adding Built-in Functions
-
-1. Choose layer (core/data/debug/ui)
-2. Add to `pkg/interpreter/[layer]_layer.go`
-3. Add tests to `pkg/interpreter/interpreter_test.go`
-4. Update LANGUAGE_SPEC.md
-5. Rebuild WASM if needed
-
-## Performance
-
-- **Native**: ~10x faster than Python implementation
-- **WASM**: Near-native performance
-- **Load time**: < 1 second (4.3 MB gzipped)
-- **File I/O** (virtual): < 10ms per operation
-- **File I/O** (real): < 100ms per operation
-
-## Roadmap
-
-### Short Term
-- [ ] REPL implementation
-- [ ] Better error messages (line/column numbers)
-- [ ] Performance optimizations
-
-### Medium Term
-- [ ] Module system
-- [ ] Type inference (Hindley-Milner)
-- [ ] LSP server for editor support
-
-### Long Term
-- [ ] Effect system (algebraic effects)
-- [ ] Native code compilation (LLVM)
-- [ ] Package manager
-
-## Contributing
-
-Contributions welcome! The codebase is well-tested and documented.
-
-**Getting started**:
-1. Read [PHILOSOPHY.md](PHILOSOPHY.md) to understand the design
-2. Check [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) for syntax
-3. Look at [examples/](examples/) for usage patterns
-4. Run tests: `cd layer-go && go test ./pkg/...`
-
-**Areas for contribution**:
-- Performance optimizations
-- Better error messages
-- REPL implementation
-- Module system design
-- Documentation improvements
-- More examples
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of the above on every push.
 
 ## License
 
-MIT License - See LICENSE file
-
-## Acknowledgments
-
-Layer draws inspiration from:
-- **Haskell**: `let ... in` syntax, purity philosophy
-- **OCaml/F#**: ML-family syntax and pattern matching
-- **Elm**: Managed effects and explicit architecture
-- **Photoshop**: Layer metaphor for composition
-
----
-
-**Layer**: Pure functions, practical effects, spatial organization.
-
-**Try it now**: `cd visual-editor/frontend && npm run dev`
+MIT — see [LICENSE](LICENSE).

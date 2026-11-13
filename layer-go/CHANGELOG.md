@@ -4,6 +4,35 @@ Complete history of the Go/WASM implementation migration.
 
 ---
 
+## November 13, 2026 - Language checks, CLI, and editor overhaul
+
+### Language
+- String interpolation in double-quoted strings: `"fib({n}) = {fib(n)}"` (single quotes stay raw)
+- `if cond then a else b` expression
+- Static checks before execution: undefined names, unknown/inactive layers, missing `layer.name` members,
+  purity violations — in every function body, all reported at once with positions
+- Declared but unlisted layers are inactive when an `@layers` directive exists (as LANGUAGE_SPEC states)
+- Layer bodies accept only `fn` definitions; trailing tokens after the main expression are an error
+  (both were silently ignored or misparsed before)
+- Runtime errors carry positions (including operator/built-in errors) and a compressed Layer call trace
+- Recursion limit with a clean error; under WASM, goroutine stack hopping lets recursion go 20,000 deep
+  instead of killing the Go runtime at ~2,000
+- `fallback` logs a warning when it skips a failing layer
+- `map`/`filter`/`reduce`/`compose`/option helpers accept built-in functions, not only closures
+- UI XML output is escaped and deterministic
+
+### Tooling
+- `cmd/layer` CLI (`run`, `check`, `-D name=value`)
+- `pkg/runner`: one pipeline with structured issues for the CLI, WASM and tests
+- WASM API returns JSON; `describeLayer` added; UI input values passed as variables, never spliced into source
+- Logs go through a per-interpreter sink (they never reached the editor before)
+- Tests run every example (checking `# Result:` comments) and every program in README.md
+- `build-wasm.sh` copies `wasm_exec.js` from `$GOROOT/lib/wasm` (Go ≥ 1.24 moved it), writes straight
+  into the editor's `public/`
+- Removed the obsolete regex-based `cmd/test-parser`
+
+---
+
 ## December 26, 2025 - WASM Deadlock Fix (FINAL)
 
 ### Issue
