@@ -13,6 +13,7 @@ go test ./...                            # interpreter, CLI, every example, ever
 
 cd ../visual-editor/frontend
 pnpm typecheck && pnpm lint && pnpm build
+pnpm test:e2e                            # browser tests (Playwright; `pnpm exec playwright install chromium` once)
 ```
 
 All of these run in CI (`.github/workflows/ci.yml`). The manual browser checks below are still useful after

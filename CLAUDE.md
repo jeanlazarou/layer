@@ -29,10 +29,14 @@ node test_wasm_node.js                 # smoke-test the WASM build (run after bu
 
 cd visual-editor/frontend              # package manager: pnpm
 pnpm dev                               # http://localhost:5173
-pnpm typecheck && pnpm lint && pnpm build
+pnpm typecheck && pnpm lint && pnpm build   # typecheck/lint also cover e2e/
+pnpm test:e2e                          # Playwright: builds, serves dist/ on :4173, runs e2e/*.spec.ts
+E2E_BASE_URL=https://jeanlazarou.github.io/layer/ pnpm test:e2e   # against the deployed site
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of the above; `pages.yml` deploys the editor to GitHub Pages.
+CI (`.github/workflows/ci.yml`) runs all of the above (the editor job rebuilds the WASM first, so browser
+tests exercise the interpreter in the same commit); `pages.yml` deploys the editor to GitHub Pages and then
+runs the browser tests against the live URL.
 
 ## Architecture
 
@@ -107,6 +111,9 @@ with the output), and every ```` ```layer ```` block in README.md that starts wi
   (`executeLayer(source, varsJSON)`) — never splice user text into source. `target: "<input>"` routes a result
   into an input.
 - Layer colors: core green, ui blue, debug orange, data purple.
+- Browser tests live in `e2e/editor.spec.ts`. They drive Monaco through `window.monaco` (`setCode` helper),
+  navigate to `'./'` (never `'/'`, which breaks under the Pages sub-path), and find controls by role/label —
+  keep MUI `Tooltip` titles and button texts stable or update the tests with them.
 
 ## Status
 

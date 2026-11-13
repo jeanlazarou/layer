@@ -97,7 +97,14 @@ The WASM module exports three functions returning JSON (see
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm build
+pnpm exec playwright install chromium     # once
+pnpm test:e2e                             # browser tests: builds, serves dist/, runs e2e/*.spec.ts
+E2E_BASE_URL=https://jeanlazarou.github.io/layer/ pnpm test:e2e   # against a deployed copy
 ```
+
+The browser tests cover running, hiding layers, live diagnostics, located runtime errors, the UI preview,
+examples, the calculator's `target`, autosave across reloads, and the help dialog. CI runs them on every
+push and again against the live site after each Pages deploy.
 
 ## Known limitations
 

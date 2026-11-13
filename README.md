@@ -181,9 +181,12 @@ go test ./...                 # interpreter, CLI, every example, and every progr
 
 cd ../visual-editor/frontend
 pnpm typecheck && pnpm lint && pnpm build
+pnpm exec playwright install chromium        # once
+pnpm test:e2e                                # browser tests of the editor (Playwright)
 ```
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of the above on every push.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of the above on every push, and the
+Pages workflow re-runs the browser tests against the deployed site after each deploy.
 
 ## License
 
