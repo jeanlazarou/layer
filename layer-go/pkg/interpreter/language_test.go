@@ -399,14 +399,12 @@ func TestUIRenderEscapesAndSortsAttributes(t *testing.T) {
 	}
 }
 
-// ── Blend modes × open recursion ──────────────────────────────────────────────
+// ── Blend modes × recursion ───────────────────────────────────────────────────
 
-// TestChainReappliesAtEveryRecursiveCall locks in the current semantics:
-// with blend: chain, an unqualified recursive call inside the bottom layer
-// resolves through the whole stack again, so the chain is applied at every
-// level (f(0)=0, f(1)=(1+0)*10=10, f(2)=(1+10)*10=110). LANGUAGE_SPEC lists
-// a dedicated rule for this as future work; change this test deliberately.
-func TestChainReappliesAtEveryRecursiveCall(t *testing.T) {
+// Combining modes apply once per outermost call: recursion inside a
+// participating layer stays in that layer. (Before this rule, the chain was
+// re-applied at every level and f(2) below was 110.)
+func TestChainAppliesOncePerOuterCall(t *testing.T) {
 	got := mustExecute(t, `
 	@layers [core, scale] blend: chain
 	@layer core {
@@ -417,25 +415,132 @@ func TestChainReappliesAtEveryRecursiveCall(t *testing.T) {
 	}
 	f(2)
 	`)
-	if got != int64(110) {
-		t.Errorf("got %v, want 110", got)
+	if got != int64(20) {
+		t.Errorf("got %v, want 20", got)
 	}
 }
 
-// TestChainWithQualifiedRecursionAppliesOnce shows the escape hatch: qualify
-// the recursive call and the chain runs once, on the final result.
-func TestChainWithQualifiedRecursionAppliesOnce(t *testing.T) {
+// A call from a function that is not itself being combined (here core.twice)
+// starts a fresh chain each time.
+func TestChainCalledFromAnotherFunctionAppliesEachTime(t *testing.T) {
 	got := mustExecute(t, `
 	@layers [core, scale] blend: chain
 	@layer core {
-		fn f(n) = if n == 0 then 0 else 1 + core.f(n - 1)
+		fn f(n) = if n == 0 then 0 else 1 + f(n - 1)
+		fn twice(n) = [f(n), f(n + 1)]
 	}
 	@layer scale {
 		fn f(x) = x * 10
 	}
+	twice(2)
+	`)
+	if ShowNested(got) != "[20, 30]" {
+		t.Errorf("got %s, want [20, 30]", ShowNested(got))
+	}
+}
+
+func TestCollectWithRecursionStaysInEachLayer(t *testing.T) {
+	got := mustExecute(t, `
+	@layers [core, audit] blend: collect
+	@layer core {
+		fn count(n) = if n == 0 then 0 else 1 + count(n - 1)
+	}
+	@layer audit {
+		fn count(n) = "audit {n}"
+	}
+	count(3)
+	`)
+	if ShowNested(got) != `["audit 3", 3]` {
+		t.Errorf("got %s", ShowNested(got))
+	}
+}
+
+// Override keeps open recursion: that is what lets a wrapping layer see
+// every recursive step.
+func TestOverrideKeepsOpenRecursion(t *testing.T) {
+	_, interp, err := run(t, `
+	@layers [core, debug]
+	@layer core {
+		fn f(n) = if n == 0 then 0 else 1 + f(n - 1)
+	}
+	@layer debug {
+		fn f(n) = let _ = log(n) in core.f(n)
+	}
 	f(2)
 	`)
-	if got != int64(20) {
-		t.Errorf("got %v, want 20", got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(interp.Logs()) != 3 {
+		t.Errorf("expected a log line per recursion level, got %q", interp.Logs())
+	}
+}
+
+// ── Per-function blend modes ──────────────────────────────────────────────────
+
+func TestPerFunctionBlendModes(t *testing.T) {
+	got := mustExecute(t, `
+	@layers [core, data, cache, audit] blend: {fetch: fallback, notify: collect}
+	@layer core {
+		fn fetch(k) = data.Some("db:{k}")
+		fn notify(msg) = "core {msg}"
+		fn name() = "core"
+	}
+	@layer cache {
+		fn fetch(k) = data.None()
+	}
+	@layer audit {
+		fn notify(msg) = "audit {msg}"
+		fn name() = "audit"
+	}
+	[data.unwrap(fetch("a"), "?"), notify("x"), name()]
+	`)
+	// fetch: cache misses, core answers. notify: both run, top first.
+	// name: not listed, so the default (override) applies.
+	if ShowNested(got) != `["db:a", ["audit x", "core x"], "audit"]` {
+		t.Errorf("got %s", ShowNested(got))
+	}
+}
+
+func TestBlendMapDefaultWithException(t *testing.T) {
+	got := mustExecute(t, `
+	@layers [core, loud] blend: {_: collect, greet: override}
+	@layer core {
+		fn greet() = "hi"
+		fn tag() = "core"
+	}
+	@layer loud {
+		fn greet() = "HI"
+		fn tag() = "loud"
+	}
+	[greet(), tag()]
+	`)
+	if ShowNested(got) != `["HI", ["loud", "core"]]` {
+		t.Errorf("got %s", ShowNested(got))
+	}
+}
+
+func TestBlendEntryForUnknownFunctionIsReported(t *testing.T) {
+	err := mustFail(t, "@layers [core] blend: {fecth: fallback}\n@layer core {\n fn fetch(k) = k\n}\nfetch(1)",
+		"blend mode given for 'fecth', but no layer defines a function with that name")
+	var cerr *CheckError
+	if !errors.As(err, &cerr) || cerr.Issues[0].Line != 1 || cerr.Issues[0].Column != 24 {
+		t.Errorf("expected a check error at 1:24, got %v", err)
+	}
+}
+
+func TestBlendEntryForFunctionInHiddenLayerIsAllowed(t *testing.T) {
+	got := mustExecute(t, `
+	@layers [core] blend: {extra: collect}
+	@layer core {
+		fn main() = 1
+	}
+	@layer hidden {
+		fn extra() = 2
+	}
+	main()
+	`)
+	if got != int64(1) {
+		t.Errorf("got %v", got)
 	}
 }

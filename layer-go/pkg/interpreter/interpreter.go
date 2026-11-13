@@ -142,6 +142,9 @@ type Interpreter struct {
 	localEnv     map[string]interface{} // Local variable environment
 	execLayers   []string               // Stack of layers currently executing
 	depth        int                    // current Layer call depth
+	// combining counts, per name, the combined (chain/collect/fallback)
+	// calls currently running; see lookupWithBlend.
+	combining map[string]int
 
 	// MaxCallDepth bounds recursion; see DefaultMaxCallDepth.
 	MaxCallDepth int
@@ -254,6 +257,7 @@ func NewInterpreter() *Interpreter {
 	interp := &Interpreter{
 		layerContext: layers.NewLayerContext(),
 		localEnv:     make(map[string]interface{}),
+		combining:    make(map[string]int),
 		MaxCallDepth: DefaultMaxCallDepth,
 		LogSink:      func(line string) { fmt.Fprintln(os.Stderr, line) },
 	}
@@ -763,11 +767,22 @@ func isNoneValue(val interface{}) bool {
 	return false
 }
 
-// lookupWithBlend resolves a name from the layer context, applying the active blend mode.
+// lookupWithBlend resolves a name from the layer context, applying the
+// blend mode for that name (its per-function mode, or the default).
+//
+// override resolves to the topmost definition; unqualified calls inside it
+// re-enter the top of the stack (open recursion), which is what lets a
+// wrapping layer observe every recursive step.
+//
+// The combining modes (chain, collect, fallback) apply once per outermost
+// call: while a combined call to name is running, an unqualified call to
+// name from a layer that defines it resolves to that layer's own
+// definition. Recursion inside a participating layer therefore stays in
+// that layer, and the combination happens around it exactly once.
 func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, error) {
-	mode := i.layerContext.GetBlendMode()
+	mode := i.layerContext.BlendModeFor(name)
 
-	if mode == "" || mode == "override" {
+	if mode == "override" {
 		val, err := i.layerContext.Lookup(name)
 		if err != nil {
 			return nil, i.error(node, fmt.Sprintf("undefined variable: %s", name))
@@ -783,7 +798,18 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 	if len(values) == 1 {
 		return values[0], nil
 	}
+
+	// Inside a combined call to name: recursion stays in the calling layer.
+	if i.combining[name] > 0 {
+		if layer := i.executingLayer(); layer != "" {
+			if own, err := i.layerContext.GetLayerValue(layer, name); err == nil {
+				return own, nil
+			}
+		}
+	}
+
 	layerNames := i.layerContext.LayersDefining(name) // parallel to values
+	var combine func(args ...interface{}) (interface{}, error)
 
 	switch mode {
 	case "chain":
@@ -792,7 +818,7 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 		// Partial application semantics: each upper layer is called with (result, args[1], args[2], …).
 		// The first parameter is always the piped value; remaining parameters are forwarded
 		// unchanged from the original call, so multi-param functions work naturally.
-		return func(args ...interface{}) (interface{}, error) {
+		combine = func(args ...interface{}) (interface{}, error) {
 			result, err := callValue(values[len(values)-1], args...)
 			if err != nil {
 				return nil, err
@@ -806,11 +832,11 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 				}
 			}
 			return result, nil
-		}, nil
+		}
 
 	case "collect":
 		// Call every layer that defines the name; return results as a list.
-		return func(args ...interface{}) (interface{}, error) {
+		combine = func(args ...interface{}) (interface{}, error) {
 			results := make([]interface{}, 0, len(values))
 			for _, val := range values {
 				res, err := callValue(val, args...)
@@ -820,7 +846,7 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 				results = append(results, res)
 			}
 			return results, nil
-		}, nil
+		}
 
 	case "fallback":
 		// Try from top layer down; return first result that is not None.
@@ -828,7 +854,7 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 		// A layer that errors is skipped, but the error is reported in the
 		// log so a bug in (say) a cache layer never silently looks like a
 		// cache miss.
-		return func(args ...interface{}) (interface{}, error) {
+		combine = func(args ...interface{}) (interface{}, error) {
 			var lastNone interface{}
 			var lastErr error
 			for idx, val := range values {
@@ -849,10 +875,17 @@ func (i *Interpreter) lookupWithBlend(node ast.Node, name string) (interface{}, 
 			}
 			// All layers errored — return the last error directly.
 			return nil, lastErr
-		}, nil
+		}
+
+	default:
+		return values[0], nil
 	}
 
-	return values[0], nil
+	return func(args ...interface{}) (interface{}, error) {
+		i.combining[name]++
+		defer func() { i.combining[name]-- }()
+		return combine(args...)
+	}, nil
 }
 
 // applyPurityAnnotation records a layer's declared purity. Built-in layers
@@ -918,6 +951,9 @@ func (i *Interpreter) Load(program *ast.Program) error {
 		if program.LayersDirective.BlendMode != "" {
 			i.layerContext.SetBlendMode(program.LayersDirective.BlendMode)
 		}
+		for _, entry := range program.LayersDirective.BlendEntries {
+			i.layerContext.SetBlendModeFor(entry.Name, entry.Mode)
+		}
 		for _, entry := range program.LayersDirective.Layers {
 			if entry.Condition != nil {
 				result, err := i.Eval(entry.Condition, i.localEnv)
@@ -964,7 +1000,7 @@ func (i *Interpreter) Load(program *ast.Program) error {
 	// unrestricted by purity rules.
 	i.layerContext.SetCurrentLayer("")
 
-	return i.check(decls, program.MainExpression)
+	return i.check(program, decls)
 }
 
 // Execute executes a complete Layer program

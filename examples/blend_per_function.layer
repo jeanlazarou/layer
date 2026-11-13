@@ -1,0 +1,33 @@
+# Per-function blend modes — each function chooses how its layers combine
+#
+#   fetch → fallback: try the cache first; compute only on a miss
+#   total → chain:    core sums the items, then tax transforms the sum
+#   anything else → override (the default; set another with `_: <mode>`)
+#
+# Combining modes apply once per outer call: core.total recurses over the
+# list on its own, and tax runs once on the final sum (37.5, not a tax
+# applied at every recursion level).
+
+@layers [core, data, tax, cache] blend: {fetch: fallback, total: chain}
+
+@layer core {
+    fn total(items) =
+        match items with
+        | []           -> 0
+        | [h, ...rest] -> h + total(rest)
+
+    fn fetch(key) = data.Some("computed:{key}")
+}
+
+@layer tax {
+    fn total(amount) = amount * 1.25
+}
+
+@layer<impure> cache {
+    fn fetch(key) = data.get(key)
+}
+
+let _ = data.set("price", "cached") in
+[total([10, 20]), data.unwrap(fetch("price"), "?"), data.unwrap(fetch("other"), "?")]
+
+# Result: [37.5, "cached", "computed:other"]

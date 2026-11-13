@@ -73,8 +73,11 @@ Key interpreter files (`layer-go/pkg/interpreter/`):
 - **`if c then a else b`** — `if`/`then`/`else`/`when`/`blend` are soft keywords (lexed as identifiers).
 - **Purity**: `core` and custom layers are pure; `ui`/`debug`/`data` impure; `@layer<impure> name` opts in.
   Enforced statically (check.go) and at runtime.
-- **Blend modes**: `@layers [...] blend: override|chain|collect|fallback`. `fallback` skips a failing layer but
-  logs a `[WARN]` line.
+- **Blend modes**: `@layers [...] blend: chain` (all names) or `blend: {fetch: fallback, _: chain}` (per
+  function; `_` = default). `LayerContext.BlendModeFor(name)` resolves the mode. Combining modes
+  (chain/collect/fallback) apply once per outermost call: `Interpreter.combining` tracks names being combined,
+  and inside one an unqualified call from a layer defining the name resolves to that layer (recursion stays
+  local). `override` keeps open recursion. `fallback` skips a failing layer but logs a `[WARN]` line.
 - **Output**: `log`, `trace`, `print`, ... go through `Interpreter.emit` → `LogSink` (stderr in the CLI;
   collected into `Result.Logs` for the editor). Never write to `os.Stdout`/`os.Stderr` from built-ins.
 - **Errors**: build them with `i.error(node, msg)` (positioned `*RuntimeError`); errors from Go built-ins are
@@ -119,7 +122,7 @@ with the output), and every ```` ```layer ```` block in README.md that starts wi
 
 Implemented: interpreter, CLI, WASM editor, core/ui/debug/data layers, open recursion, blend modes, purity
 (static + runtime), conditional layers, introspection (`@which`, `@inspect`, `@diff`), partial application.
-Not implemented: type inference (Hindley-Milner is specified only), modules, REPL, per-function blend modes.
+Per-function blend modes. Not implemented: type inference (Hindley-Milner is specified only), modules, REPL.
 
 ## Docs
 

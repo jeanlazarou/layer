@@ -12,7 +12,8 @@ type LayerContext struct {
 	layers       map[string]map[string]interface{}
 	layerOrder   []string // Bottom to top
 	currentLayer string
-	blendMode    string // "override" (default/""), "chain", "collect", "fallback"
+	blendMode    string            // default mode: "override" (default/""), "chain", "collect", "fallback"
+	blendModes   map[string]string // per-function modes, overriding blendMode
 
 	// impureLayers marks layers whose functions may perform effects.
 	// Layers are pure unless marked; ui/data/debug are marked at setup.
@@ -28,6 +29,7 @@ func NewLayerContext() *LayerContext {
 	return &LayerContext{
 		layers:         make(map[string]map[string]interface{}),
 		layerOrder:     make([]string, 0),
+		blendModes:     make(map[string]string),
 		impureLayers:   make(map[string]bool),
 		pureExceptions: make(map[string]bool),
 	}
@@ -175,8 +177,25 @@ func (lc *LayerContext) SetBlendMode(mode string) {
 	lc.blendMode = mode
 }
 
-// GetBlendMode returns the current blend mode
+// GetBlendMode returns the default blend mode ("" means override)
 func (lc *LayerContext) GetBlendMode() string {
+	return lc.blendMode
+}
+
+// SetBlendModeFor sets the blend mode used for one function name.
+func (lc *LayerContext) SetBlendModeFor(name, mode string) {
+	lc.blendModes[name] = mode
+}
+
+// BlendModeFor returns the blend mode that applies to name: its
+// per-function mode, else the default, normalised so "" becomes "override".
+func (lc *LayerContext) BlendModeFor(name string) string {
+	if mode, ok := lc.blendModes[name]; ok {
+		return mode
+	}
+	if lc.blendMode == "" {
+		return "override"
+	}
 	return lc.blendMode
 }
 

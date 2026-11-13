@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jeanlazarou/layer/pkg/ast"
@@ -300,5 +301,37 @@ func TestParseCompleteProgram(t *testing.T) {
 	_, ok := program.MainExpression.(*ast.FunctionCall)
 	if !ok {
 		t.Fatalf("Expected FunctionCall for main expression, got %T", program.MainExpression)
+	}
+}
+
+func TestParseBlendMap(t *testing.T) {
+	tokens, _ := lexer.Tokenize("@layers [core, a] blend: {_: chain, fetch: fallback, notify: collect}\n1")
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := program.LayersDirective
+	if d.BlendMode != "chain" {
+		t.Errorf("default mode %q", d.BlendMode)
+	}
+	if len(d.BlendEntries) != 2 || d.BlendEntries[0].Name != "fetch" || d.BlendEntries[0].Mode != "fallback" ||
+		d.BlendEntries[1].Name != "notify" || d.BlendEntries[1].Mode != "collect" {
+		t.Errorf("entries %+v", d.BlendEntries)
+	}
+}
+
+func TestParseBlendMapErrors(t *testing.T) {
+	cases := map[string]string{
+		"@layers [core] blend: {f: sideways}":          "unknown blend mode 'sideways'",
+		"@layers [core] blend: {f: chain, f: collect}": "blend mode for 'f' is given twice",
+		"@layers [core] blend: {f: chain g: collect}":  "expected ',' or '}' in blend map",
+		"@layers [core] blend: {f chain}":              "expected COLON",
+	}
+	for src, want := range cases {
+		tokens, _ := lexer.Tokenize(src)
+		_, err := Parse(tokens)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v, want error containing %q", src, err, want)
+		}
 	}
 }

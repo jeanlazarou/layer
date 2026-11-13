@@ -988,11 +988,14 @@ Each layer in the `@layers` list can carry an optional `if <expr>` guard. When t
 
 **Status**: ✅ **Implemented**
 
-By default, when a function is defined in multiple layers, the **top layer wins** (override). Blend modes change this behaviour. They are set on the `@layers` directive and apply to every function call resolved through the layer stack.
+By default, when a function is defined in multiple layers, the **top layer wins** (override). Blend modes change this behaviour. They are set on the `@layers` directive — for every function, or per function:
 
 ```layer
-@layers [core, cache, data] blend: fallback
+@layers [core, cache, data] blend: fallback                    # every function
+@layers [core, data, tax, cache] blend: {fetch: fallback, total: chain}   # per function
 ```
+
+The function definitions never say how they combine; the stack does.
 
 ### Available Blend Modes
 
@@ -1122,6 +1125,56 @@ layer is visible instead of silently looking like a cache miss. If all layers re
 
 Useful for **layered caching**, **feature flags**, or any **try-first pattern**.
 
+### Per-function blend modes
+
+A map gives each function its own mode. Functions not listed use the default, which is `override` unless the
+map has a `_` entry:
+
+```layer
+@layers [core, data, tax, cache] blend: {fetch: fallback, total: chain}
+# fetch: fallback, total: chain, every other function: override
+
+@layers [core, loud] blend: {_: collect, greet: override}
+# greet: override, every other function: collect
+```
+
+`blend: chain` is shorthand for `blend: {_: chain}`. A name may appear once. A name that no layer defines —
+active or hidden — is a check error, since it is almost certainly a typo:
+
+```
+check error at 1:24: blend mode given for 'fecth', but no layer defines a function with that name
+```
+
+See `examples/blend_per_function.layer`. In the visual editor, the "Who answers each call?" panel shows a mode
+selector next to every function defined in more than one layer.
+
+### Blend modes and recursion
+
+`override` keeps **open recursion**: an unqualified recursive call re-enters the top of the stack, which is what
+lets a wrapping layer observe every step (see [Recursion Across Layers](#recursion-across-layers-open-recursion)).
+
+The **combining modes** (`chain`, `collect`, `fallback`) apply **once per outermost call**: while a combined
+call to `f` is running, an unqualified call to `f` from a layer that defines `f` goes to that layer's own
+definition. Recursion inside a participating layer therefore stays inside it, and the combination happens
+around it exactly once:
+
+```layer
+@layers [core, scale] blend: chain
+
+@layer core {
+    fn f(n) = if n == 0 then 0 else 1 + f(n - 1)   # recursion stays in core
+}
+@layer scale {
+    fn f(x) = x * 10
+}
+
+f(2)   # → core.f(2) = 2, then scale.f(2) = 20
+```
+
+Any other call starts a fresh combination — for example a core helper `fn twice(n) = [f(n), f(n + 1)]` called
+from the main expression gives `[20, 30]`. (Before this rule, the chain was re-applied at every recursion
+level and `f(2)` was 110.)
+
 ### Blend Mode and Explicit Layer Access
 
 Blend modes only affect calls that go through normal layer resolution. Explicit layer access (e.g., `core.factorial`) always bypasses blend mode and calls that specific layer directly.
@@ -1135,7 +1188,8 @@ core.process(5)    # blend mode bypassed → 6
 
 ### Validation
 
-Unknown blend modes are caught at **parse time**:
+Unknown blend modes and repeated names are caught at **parse time**; per-function entries for functions no
+layer defines are caught by the static checks:
 
 ```layer
 @layers [core] blend: bogus
@@ -2424,9 +2478,9 @@ myprogram.layer
 - ~~Conditional layer activation~~ ✅ implemented — see [Conditional Layer Activation](#conditional-layer-activation)
 - Flatten operation — merge a layer stack into a single resolved layer
 - ~~Layer purity enforcement~~ ✅ implemented, statically and at runtime — see [Layer Purity System](#layer-purity-system)
-- Per-function blend modes (today the mode applies to every name defined in more than one layer)
-- A defined interaction between `chain` and open recursion (today the chain is re-applied at every
-  recursive call, like override's open recursion)
+- ~~Per-function blend modes~~ ✅ implemented — see [Per-function blend modes](#per-function-blend-modes)
+- ~~A defined interaction between blend modes and recursion~~ ✅ combining modes apply once per outer call —
+  see [Blend modes and recursion](#blend-modes-and-recursion)
 - Hot reloading of individual layers
 - Layer versioning and compatibility
 - ~~Visual layer diff view in the editor~~ ✅ implemented

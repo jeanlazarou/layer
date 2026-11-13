@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 
 // Each test starts from a fresh browser context, so the editor shows the
@@ -122,6 +123,26 @@ test('the fallback example loads its blend mode and impure layer, and runs', asy
   await run(page)
   await expect(output(page)).toContainText('⇒ ["cached-hello", "computed-value-for-something-new"]')
   await expect(page.getByText('fetch()')).toBeVisible()
+})
+
+test('functions can choose their own blend mode in the resolution panel', async ({ page }) => {
+  await openEditor(page)
+  await openExample(page, /Per-function blend modes/)
+  const fetchMode = page.getByLabel('blend mode for fetch')
+  await expect(fetchMode).toHaveValue('fallback')
+  await expect(page.getByLabel('blend mode for total')).toHaveValue('chain')
+
+  await run(page)
+  await expect(output(page)).toContainText('⇒ [37.5, "cached", "computed:other"]')
+
+  // Switch fetch to override: only the cache answers, so a miss stays a miss.
+  await fetchMode.selectOption('override')
+  await expect(output(page)).toContainText('⇒ [37.5, "cached", "?"]')
+
+  // Saving writes the per-function modes back into the @layers directive.
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save as .layer file' }).click()])
+  const saved = await readFile((await download.path())!, 'utf8')
+  expect(saved).toContain('@layers [core, data, tax, cache] blend: {fetch: override, total: chain}')
 })
 
 test('calculator buttons write into the display input (target)', async ({ page }) => {

@@ -58,10 +58,33 @@ func (c *checker) report(node ast.Node, msg string) {
 	c.issues = append(c.issues, CheckIssue{Line: pos.Line, Column: pos.Column, Message: msg})
 }
 
-// check runs the static checks over the active layer declarations and the
-// main expression.
-func (i *Interpreter) check(decls []*ast.LayerDeclaration, main ast.Node) error {
+// check runs the static checks over the active layer declarations, the
+// main expression, and the per-function blend modes of the directive.
+func (i *Interpreter) check(program *ast.Program, decls []*ast.LayerDeclaration) error {
 	c := &checker{interp: i, seen: make(map[string]bool)}
+	main := program.MainExpression
+
+	// A per-function blend mode must name a function some layer defines.
+	// Inactive (hidden) layers count: hiding a layer must not turn its
+	// blend entry into an error. A name nobody defines is most likely a typo.
+	if program.LayersDirective != nil {
+		declared := make(map[string]bool)
+		for _, decl := range program.LayerDeclarations {
+			for _, def := range decl.Definitions {
+				if fd, ok := def.(*ast.FunctionDef); ok {
+					declared[fd.Name] = true
+				}
+			}
+		}
+		for _, entry := range program.LayersDirective.BlendEntries {
+			if !declared[entry.Name] && len(i.layerContext.LayersDefining(entry.Name)) == 0 {
+				c.issues = append(c.issues, CheckIssue{
+					Line: entry.Line, Column: entry.Column,
+					Message: fmt.Sprintf("blend mode given for '%s', but no layer defines a function with that name", entry.Name),
+				})
+			}
+		}
+	}
 
 	// Variables seeded with SetVar (conditions, UI inputs) are in scope
 	// everywhere.

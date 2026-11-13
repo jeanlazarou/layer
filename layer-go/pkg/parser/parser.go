@@ -177,29 +177,86 @@ func (p *Parser) parseLayersDirective() (*ast.LayersDirective, error) {
 		return nil, err
 	}
 
-	// Optional blend mode: blend: <mode>
-	var blendMode string
-	if p.current().Type == lexer.IDENTIFIER && p.current().Value != nil && p.current().Value.(string) == "blend" {
+	directive := &ast.LayersDirective{
+		Base:   ast.Base{Line: start.Line, Column: start.Column},
+		Layers: layers,
+	}
+
+	// Optional blend mode: `blend: <mode>` for every name, or a per-function
+	// map `blend: {fetch: fallback, total: chain, _: collect}` where `_` is
+	// the default for names not listed.
+	if p.isWord("blend") {
 		p.advance() // consume "blend"
 		if _, err := p.expect(lexer.COLON); err != nil {
 			return nil, err
 		}
-		modeToken, err := p.expect(lexer.IDENTIFIER)
-		if err != nil {
-			return nil, err
-		}
-		blendMode = modeToken.Value.(string)
-		validModes := map[string]bool{"override": true, "chain": true, "collect": true, "fallback": true}
-		if !validModes[blendMode] {
-			return nil, p.error(fmt.Sprintf("unknown blend mode '%s': must be override, chain, collect, or fallback", blendMode))
+		if p.match(lexer.LBRACE) {
+			if err := p.parseBlendMap(directive); err != nil {
+				return nil, err
+			}
+		} else {
+			mode, err := p.parseBlendMode()
+			if err != nil {
+				return nil, err
+			}
+			directive.BlendMode = mode
 		}
 	}
 
-	return &ast.LayersDirective{
-		Base:      ast.Base{Line: start.Line, Column: start.Column},
-		Layers:    layers,
-		BlendMode: blendMode,
-	}, nil
+	return directive, nil
+}
+
+var validBlendModes = map[string]bool{"override": true, "chain": true, "collect": true, "fallback": true}
+
+// parseBlendMode consumes one blend mode name and validates it.
+func (p *Parser) parseBlendMode() (string, error) {
+	if !p.match(lexer.IDENTIFIER) {
+		return "", p.error(fmt.Sprintf("expected a blend mode (override, chain, collect, or fallback), got %s", p.current().Type))
+	}
+	mode := p.current().Value.(string)
+	if !validBlendModes[mode] {
+		return "", p.error(fmt.Sprintf("unknown blend mode '%s': must be override, chain, collect, or fallback", mode))
+	}
+	p.advance()
+	return mode, nil
+}
+
+// parseBlendMap parses `{name: mode, ...}` into the directive.
+func (p *Parser) parseBlendMap(directive *ast.LayersDirective) error {
+	p.advance() // {
+	seen := make(map[string]bool)
+	for !p.match(lexer.RBRACE) {
+		nameToken, err := p.expect(lexer.IDENTIFIER)
+		if err != nil {
+			return err
+		}
+		name := nameToken.Value.(string)
+		if seen[name] {
+			return fmt.Errorf("parser error at %d:%d: blend mode for '%s' is given twice", nameToken.Line, nameToken.Column, name)
+		}
+		seen[name] = true
+		if _, err := p.expect(lexer.COLON); err != nil {
+			return err
+		}
+		mode, err := p.parseBlendMode()
+		if err != nil {
+			return err
+		}
+		if name == "_" {
+			directive.BlendMode = mode
+		} else {
+			directive.BlendEntries = append(directive.BlendEntries, ast.BlendEntry{
+				Name: name, Mode: mode, Line: nameToken.Line, Column: nameToken.Column,
+			})
+		}
+		if p.match(lexer.COMMA) {
+			p.advance()
+		} else if !p.match(lexer.RBRACE) {
+			return p.error(fmt.Sprintf("expected ',' or '}' in blend map, got %s", p.current().Type))
+		}
+	}
+	p.advance() // }
+	return nil
 }
 
 // parseLayerDeclaration parses @layer core { ... } declaration

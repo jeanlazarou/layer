@@ -17,6 +17,14 @@ export type LayerId = string | 'main'
 
 export type BlendMode = 'override' | 'chain' | 'collect' | 'fallback'
 
+/** The stack's blend configuration: a default plus per-function modes. */
+export interface BlendSettings {
+  mode: BlendMode
+  perFunction: Record<string, BlendMode>
+}
+
+export const DEFAULT_BLEND: BlendSettings = { mode: 'override', perFunction: {} }
+
 export const BLEND_MODES: { value: BlendMode; label: string; help: string }[] = [
   { value: 'override', label: 'Override', help: 'Top layer wins; call lower layers explicitly (core.f)' },
   { value: 'chain', label: 'Chain', help: 'Bottom layer runs first; each higher layer receives the previous result' },
@@ -66,7 +74,7 @@ export interface RunResult {
 export interface Description {
   blendMode: BlendMode
   layers: { name: string; pure: boolean; defines: string[] }[]
-  resolutions: { name: string; layers: string[] }[]
+  resolutions: { name: string; layers: string[]; mode: BlendMode }[]
 }
 
 export interface DescribeResult {
@@ -83,5 +91,6 @@ export interface SplitResult {
   layers?: Record<string, string>
   purity?: Record<string, 'pure' | 'impure'>
   blendMode?: string
+  blendModes?: Record<string, string>
   mainExpression?: string
 }

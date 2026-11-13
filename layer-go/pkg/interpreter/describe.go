@@ -20,13 +20,15 @@ type Resolution struct {
 	// first. With the override blend mode, Layers[0] answers unqualified
 	// calls; other modes combine all of them.
 	Layers []string `json:"layers"`
+	// Mode is the blend mode that applies to this name.
+	Mode string `json:"mode"`
 }
 
 // Description is a static picture of a loaded program's layer stack, used
 // by the visual editor's resolution view.
 type Description struct {
-	BlendMode   string       `json:"blendMode"`
-	Layers      []LayerInfo  `json:"layers"` // bottom of the stack first
+	BlendMode   string       `json:"blendMode"` // the default mode; see Resolution.Mode per name
+	Layers      []LayerInfo  `json:"layers"`    // bottom of the stack first
 	Resolutions []Resolution `json:"resolutions"`
 }
 
@@ -77,7 +79,7 @@ func (i *Interpreter) Describe(program *ast.Program) Description {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		d.Resolutions = append(d.Resolutions, Resolution{Name: n, Layers: lc.LayersDefining(n)})
+		d.Resolutions = append(d.Resolutions, Resolution{Name: n, Layers: lc.LayersDefining(n), Mode: lc.BlendModeFor(n)})
 	}
 	return d
 }

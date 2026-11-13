@@ -1,7 +1,7 @@
 // Assembling editor state into a Layer program, mapping interpreter errors
 // back to the layer they came from, and turning a split .layer file back
 // into editor layers.
-import type { BlendMode, Issue, Layer, LayerId, LocatedIssue, SplitResult } from './types'
+import type { BlendMode, BlendSettings, Issue, Layer, LayerId, LocatedIssue, SplitResult } from './types'
 import { BLEND_MODES, isBuiltinLayer } from './types'
 
 export const LAYER_COLORS: Record<string, string> = {
@@ -55,8 +55,30 @@ export function normalizeOrder(layers: Layer[]): Layer[] {
   return [...layers.filter(l => l.name !== 'core'), ...core]
 }
 
+/** Names of the functions a piece of layer code defines. */
+export function definedFunctions(code: string): Set<string> {
+  const names = new Set<string>()
+  for (const m of code.matchAll(/\bfn\s+(\w+)\s*\(/g)) names.add(m[1])
+  return names
+}
+
+const isBlendMode = (m: unknown): m is BlendMode => BLEND_MODES.some(b => b.value === m)
+
+/**
+ * The `blend: ...` clause of @layers. Per-function entries are emitted only
+ * for functions the included layers define, so hiding the only layer that
+ * defines a function never produces an "unknown function" check error.
+ */
+function blendClause(blend: BlendSettings, included: Layer[]): string {
+  const defined = new Set(included.flatMap(l => [...definedFunctions(l.code)]))
+  const entries = Object.entries(blend.perFunction).filter(([name]) => defined.has(name))
+  if (entries.length === 0) return blend.mode === 'override' ? '' : ` blend: ${blend.mode}`
+  const parts = [...(blend.mode !== 'override' ? [`_: ${blend.mode}`] : []), ...entries.map(([name, mode]) => `${name}: ${mode}`)]
+  return ` blend: {${parts.join(', ')}}`
+}
+
 /** Assemble editor layers (top of the stack first) into a program. */
-export function buildProgram(layers: Layer[], mainCode: string, blendMode: BlendMode, opts: BuildOptions = {}): Program {
+export function buildProgram(layers: Layer[], mainCode: string, blend: BlendSettings, opts: BuildOptions = {}): Program {
   const indent = opts.indent ?? 0
   const pad = ' '.repeat(indent)
   const lines: string[] = [...(opts.header ?? [])]
@@ -64,10 +86,10 @@ export function buildProgram(layers: Layer[], mainCode: string, blendMode: Blend
 
   const bottomUp = [...layers].reverse()
   const enabled = bottomUp.filter(l => l.enabled)
-  const blend = blendMode !== 'override' ? ` blend: ${blendMode}` : ''
-  lines.push(`@layers [${enabled.map(l => l.name).join(', ')}]${blend}`, '')
+  const included = opts.includeDisabled ? bottomUp : enabled
+  lines.push(`@layers [${enabled.map(l => l.name).join(', ')}]${blendClause(blend, included)}`, '')
 
-  for (const layer of opts.includeDisabled ? bottomUp : enabled) {
+  for (const layer of included) {
     const annotation = !isBuiltinLayer(layer.name) && layer.impure ? '<impure>' : ''
     lines.push(`@layer${annotation} ${layer.name} {`)
     const code = layer.code.split('\n')
@@ -105,8 +127,8 @@ export function describeLocation(issue: LocatedIssue, layers: Layer[]): string {
 }
 
 /** Serialize the whole editor state as a .layer file. */
-export function serializeProject(layers: Layer[], mainCode: string, blendMode: BlendMode): string {
-  return buildProgram(layers, mainCode, blendMode, {
+export function serializeProject(layers: Layer[], mainCode: string, blend: BlendSettings): string {
+  return buildProgram(layers, mainCode, blend, {
     includeDisabled: true,
     indent: 4,
     header: ['# Layer program — saved by the Layer Visual Editor', ''],
@@ -116,7 +138,7 @@ export function serializeProject(layers: Layer[], mainCode: string, blendMode: B
 export interface Project {
   layers: Layer[]
   mainCode: string
-  blendMode: BlendMode
+  blend: BlendSettings
 }
 
 /**
@@ -149,6 +171,8 @@ export function projectFromSplit(split: SplitResult): Project {
     impure: purity[name] === 'impure' ? true : undefined,
   }))
 
-  const blend = BLEND_MODES.some(m => m.value === split.blendMode) ? (split.blendMode as BlendMode) : 'override'
-  return { layers: normalizeOrder(layers), mainCode: split.mainExpression ?? '', blendMode: blend }
+  const perFunction: Record<string, BlendMode> = {}
+  for (const [name, mode] of Object.entries(split.blendModes ?? {})) if (isBlendMode(mode)) perFunction[name] = mode
+  const blend: BlendSettings = { mode: isBlendMode(split.blendMode) ? split.blendMode : 'override', perFunction }
+  return { layers: normalizeOrder(layers), mainCode: split.mainExpression ?? '', blend }
 }

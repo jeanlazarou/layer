@@ -71,7 +71,9 @@ Layer borrows from context-oriented programming, aspects, CLOS method combinatio
 
 1. **Blend modes.** How definitions from different layers combine is a property of the *stack*, not of the
    functions: `override` (default), `chain` (pipe results upward), `collect` (call all, return a list),
-   `fallback` (first result that isn't `None`).
+   `fallback` (first result that isn't `None`) — for the whole stack (`blend: fallback`) or per function
+   (`blend: {fetch: fallback, total: chain}`). Combining modes apply once per call; recursion inside a layer
+   stays in that layer.
 
    ```layer
    @layers [core, data, database, cache] blend: fallback
@@ -150,13 +152,13 @@ This is a research language, not a production tool. Implemented and covered by t
 
 - Tree-walking interpreter in Go, compiled natively (CLI) and to WebAssembly (editor)
 - Layers, open recursion, explicit layer access, conditional activation (`debug if env == "dev"`)
-- Blend modes: override, chain, collect, fallback
+- Blend modes: override, chain, collect, fallback — per stack or per function
 - Purity: runtime enforcement plus a static check before execution
 - Static checks for undefined names and unknown/inactive layers, reported with positions
 - Runtime errors with positions and a Layer call trace; a recursion limit instead of a crash
 - Built-in `core`, `ui`, `debug` and `data` layers (the data layer uses an Option type)
 
-Not implemented: type inference (specified, not built), modules, a REPL, per-function blend modes.
+Not implemented: type inference (specified, not built), modules, a REPL.
 
 ## Repository
 

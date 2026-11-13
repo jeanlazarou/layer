@@ -313,10 +313,23 @@ type LayerEntry struct {
 	Condition Node // nil means unconditional
 }
 
+// BlendEntry is one per-function entry of `blend: {name: mode, ...}`.
+type BlendEntry struct {
+	Name   string
+	Mode   string
+	Line   int
+	Column int
+}
+
 type LayersDirective struct {
 	Base
-	Layers    []LayerEntry
-	BlendMode string // "override" (default), "chain", "collect", "fallback"
+	Layers []LayerEntry
+	// BlendMode is the default mode for every name: `blend: chain`, or the
+	// `_` entry of a map. "" means override.
+	BlendMode string
+	// BlendEntries are per-function modes from `blend: {fetch: fallback}`,
+	// in source order (the `_` default is not included).
+	BlendEntries []BlendEntry
 }
 
 func (l *LayersDirective) String() string {

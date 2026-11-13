@@ -25,8 +25,11 @@ type File struct {
 	// Purity maps a layer name to its explicit annotation ("pure" or
 	// "impure") when the block was written as @layer<...> name.
 	Purity map[string]string `json:"purity"`
-	// BlendMode is the @layers blend mode, or "" when not specified.
+	// BlendMode is the default @layers blend mode (`blend: chain`, or the
+	// `_` entry of a blend map), or "" when not specified.
 	BlendMode string `json:"blendMode"`
+	// BlendModes holds per-function modes from `blend: {fetch: fallback}`.
+	BlendModes map[string]string `json:"blendModes"`
 	// MainExpression is the source text after the last @layer block (or
 	// after the @layers directive when there are no blocks).
 	MainExpression string `json:"mainExpression"`
@@ -50,6 +53,7 @@ func Split(source string) (*File, error) {
 		DeclaredLayers: []string{},
 		Layers:         make(map[string]string),
 		Purity:         make(map[string]string),
+		BlendModes:     make(map[string]string),
 	}
 
 	if program.LayersDirective != nil {
@@ -57,6 +61,9 @@ func Split(source string) (*File, error) {
 			file.EnabledLayers = append(file.EnabledLayers, entry.Name)
 		}
 		file.BlendMode = program.LayersDirective.BlendMode
+		for _, entry := range program.LayersDirective.BlendEntries {
+			file.BlendModes[entry.Name] = entry.Mode
+		}
 	}
 	for _, decl := range program.LayerDeclarations {
 		file.DeclaredLayers = append(file.DeclaredLayers, decl.LayerName)
@@ -160,8 +167,9 @@ func nextSignificant(tokens []lexer.Token, atIndex int) (lexer.TokenType, lexer.
 }
 
 // directiveEnd returns the index of the last token belonging to the
-// @layers [...] directive (including an optional trailing blend clause),
-// or -1 if the directive is malformed.
+// @layers [...] directive (including an optional trailing blend clause:
+// `blend: mode` or `blend: {name: mode, ...}`), or -1 if the directive is
+// malformed.
 func directiveEnd(tokens []lexer.Token, atIndex int) int {
 	i := skipComments(tokens, atIndex+1) // LAYERS
 	i = skipComments(tokens, i+1)        // expect LBRACKET
@@ -187,6 +195,10 @@ func directiveEnd(tokens []lexer.Token, atIndex int) int {
 							m := skipComments(tokens, k+1)
 							if m < len(tokens) && tokens[m].Type == lexer.IDENTIFIER {
 								end = m
+							} else if m < len(tokens) && tokens[m].Type == lexer.LBRACE {
+								if closing := matchingBrace(tokens, m); closing > 0 {
+									end = closing
+								}
 							}
 						}
 					}

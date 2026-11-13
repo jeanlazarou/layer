@@ -1,4 +1,4 @@
-import type { BlendMode, Layer } from './types'
+import type { Layer } from './types'
 
 // The project shown on first visit (and after "New"). It demonstrates the
 // core idea: debug wraps core.factorial without touching it — hide the
@@ -58,5 +58,3 @@ fn factorial(n) =
 
 export const DEFAULT_MAIN = `# The entry point. Try: app()
 factorial(5)`
-
-export const DEFAULT_BLEND: BlendMode = 'override'

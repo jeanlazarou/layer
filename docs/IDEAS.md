@@ -149,7 +149,7 @@ Turns the visual editor into a powerful teaching and debugging tool.
 
 1. ~~**Guard clauses**~~ ✅ implemented
 2. ~~**Record pattern matching**~~ ✅ implemented
-3. ~~**Layer blend modes**~~ ✅ implemented (global per stack — see open question A)
+3. ~~**Layer blend modes**~~ ✅ implemented, per stack and per function
 4. ~~**Layer introspection**~~ ✅ implemented (`@which`, `@inspect`, `@diff`)
 5. ~~**Conditional layer activation**~~ ✅ implemented (`debug if env == "dev"`; CLI `-D env=dev`). Scoped
    activation (`with_layers(...)`) is not.
@@ -164,22 +164,13 @@ Turns the visual editor into a powerful teaching and debugging tool.
 
 These are language-design decisions, deliberately left open rather than picked by default.
 
-**A. Per-function blend modes.** Today `blend:` applies to every name defined in more than one layer, so a
-program cannot use `fallback` for `fetch` and `collect` for `notify` at the same time. Candidate syntaxes:
+**A. Per-function blend modes** — ✅ decided and implemented: a map in the directive,
+`blend: {fetch: fallback, total: chain}`, with `_` as the default for unlisted names. It keeps the "the
+composition decides, not the function" property. The editor sets them per function in the resolution panel.
 
-```layer
-@layers [core, cache, audit] blend: {fetch: fallback, notify: collect}   # per name, in the directive
-@layer cache blend: fallback { ... }                                      # per layer (ambiguous: which pairs?)
-@blend fallback fn fetch(key) = ...                                       # on the definition
-```
-
-The directive form keeps the "composition decides, not the function" property that makes blend modes novel.
-
-**B. Chain × open recursion.** With `blend: chain`, an unqualified recursive call inside the bottom layer
-re-enters the whole chain, so `f(2)` with `core: f(n) = 1 + f(n-1)` and `scale: f(x) = x * 10` is 110, not 20
-(locked by `TestChainReappliesAtEveryRecursiveCall`). That is consistent with override's open recursion but
-rarely what a pipeline means. Options: keep it (and document qualified recursion as the fix), or make the
-chain apply only at the outermost call.
+**B. Blend modes × recursion** — ✅ decided and implemented: combining modes (chain, collect, fallback) apply
+once per outermost call; recursion inside a participating layer stays in that layer. `override` keeps open
+recursion. `f(2)` in the chain example is now 20 (it was 110).
 
 **C. A UI model.** The UI layer is a view function plus `onclick` strings evaluated against input values.
 An Elm-style `init / update(msg, model) / view(model)` would fit a pure language better: state lives in Layer,

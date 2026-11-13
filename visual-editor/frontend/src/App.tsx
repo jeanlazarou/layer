@@ -35,15 +35,25 @@ import { describeProgram, runProgram, splitLayerFile } from './wasm/layerWasm'
 import { buildProgram, describeLocation, locateIssue, normalizeOrder, projectFromSplit, serializeProject, type Program } from './program'
 import { loadWorkspace, saveWorkspace } from './storage'
 import { EXAMPLES } from './examples'
-import { DEFAULT_BLEND, DEFAULT_LAYERS, DEFAULT_MAIN } from './defaults'
-import { BLEND_MODES, isLayerPure, type BlendMode, type Description, type Layer, type LayerId, type LocatedIssue } from './types'
+import { DEFAULT_LAYERS, DEFAULT_MAIN } from './defaults'
+import { BLEND_MODES, DEFAULT_BLEND, isLayerPure, type BlendMode, type BlendSettings, type Description, type Layer, type LayerId, type LocatedIssue } from './types'
 
 const saved = loadWorkspace()
+
+/** ", blend: chain, 2 per-function modes" for status messages. */
+function describeBlend(blend: BlendSettings): string {
+  const n = Object.keys(blend.perFunction).length
+  const parts = [
+    ...(blend.mode !== 'override' ? [`blend: ${blend.mode}`] : []),
+    ...(n ? [`${n} per-function blend mode${n === 1 ? '' : 's'}`] : []),
+  ]
+  return parts.length ? `, ${parts.join(', ')}` : ''
+}
 
 function App() {
   const [layers, setLayers] = useState<Layer[]>(() => normalizeOrder(saved?.layers ?? DEFAULT_LAYERS))
   const [mainCode, setMainCode] = useState(saved?.mainCode ?? DEFAULT_MAIN)
-  const [blendMode, setBlendMode] = useState<BlendMode>(saved?.blendMode ?? DEFAULT_BLEND)
+  const [blend, setBlend] = useState<BlendSettings>(saved?.blend ?? DEFAULT_BLEND)
   const [projectName, setProjectName] = useState(saved?.projectName ?? '')
   const [selectedLayerId, setSelectedLayerId] = useState<LayerId>('core')
 
@@ -63,13 +73,13 @@ function App() {
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
 
   // The program as it would run right now (enabled layers only).
-  const program: Program = useMemo(() => buildProgram(layers, mainCode, blendMode), [layers, mainCode, blendMode])
+  const program: Program = useMemo(() => buildProgram(layers, mainCode, blend), [layers, mainCode, blend])
 
   // ── Persistence ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const t = setTimeout(() => saveWorkspace({ layers, mainCode, blendMode, projectName }), 300)
+    const t = setTimeout(() => saveWorkspace({ layers, mainCode, blend, projectName }), 300)
     return () => clearTimeout(t)
-  }, [layers, mainCode, blendMode, projectName])
+  }, [layers, mainCode, blend, projectName])
 
   useEffect(() => {
     document.title = projectName ? `${projectName} — Layer` : 'Layer Visual Editor'
@@ -123,7 +133,7 @@ function App() {
   // reorder, purity, blend mode) — the core interaction of the editor.
   const runRef = useRef(handleRun)
   runRef.current = handleRun
-  const structureKey = JSON.stringify([layers.map(l => [l.id, l.enabled, l.impure ?? false]), blendMode])
+  const structureKey = JSON.stringify([layers.map(l => [l.id, l.enabled, l.impure ?? false]), blend])
   useEffect(() => {
     if (hasRun.current) void runRef.current()
   }, [structureKey])
@@ -132,14 +142,14 @@ function App() {
   // the input values bound as variables.
   const handleInteractiveExecute = useCallback(
     async (expression: string, inputs: Record<string, string | number>): Promise<string> => {
-      const res = await runProgram(buildProgram(layers, mainCode, blendMode, { main: expression }).source, inputs)
+      const res = await runProgram(buildProgram(layers, mainCode, blend, { main: expression }).source, inputs)
       if (res.logs.length > 0) {
         setOutput(prev => ({ ...prev, logs: [...prev.logs, ...res.logs] }))
       }
       if (!res.success) return `Error: ${res.errors.map(e => e.message).join('; ')}`
       return res.result
     },
-    [layers, mainCode, blendMode],
+    [layers, mainCode, blend],
   )
 
   // ── Editing ────────────────────────────────────────────────────────────────
@@ -180,13 +190,13 @@ function App() {
     setLiveIssues([])
     setLayers(project.layers)
     setMainCode(project.mainCode)
-    setBlendMode(project.blendMode)
+    setBlend(project.blend)
     setProjectName(name)
     setSelectedLayerId(project.layers.find(l => l.enabled && l.name !== 'core')?.id ?? 'core')
     setRunIssues({ source: '', issues: [] })
     hasRun.current = false
     const active = project.layers.filter(l => l.enabled).length
-    setOutput({ ...IDLE_OUTPUT, notice: `Opened ${name}: ${active} active layer${active === 1 ? '' : 's'}${project.blendMode !== 'override' ? `, blend: ${project.blendMode}` : ''}. Press ▶ to run.` })
+    setOutput({ ...IDLE_OUTPUT, notice: `Opened ${name}: ${active} active layer${active === 1 ? '' : 's'}${describeBlend(project.blend)}. Press ▶ to run.` })
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -197,7 +207,7 @@ function App() {
   }
 
   const handleSave = () => {
-    const blob = new Blob([serializeProject(layers, mainCode, blendMode)], { type: 'text/plain' })
+    const blob = new Blob([serializeProject(layers, mainCode, blend)], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -211,7 +221,7 @@ function App() {
     if (!window.confirm('Start a new project? The current one is only kept if you saved it.')) return
     setLayers(DEFAULT_LAYERS)
     setMainCode(DEFAULT_MAIN)
-    setBlendMode(DEFAULT_BLEND)
+    setBlend(DEFAULT_BLEND)
     setProjectName('')
     setSelectedLayerId('core')
     setRunIssues({ source: '', issues: [] })
@@ -267,9 +277,12 @@ function App() {
           <Tooltip title="Blend mode: how functions defined in several layers combine">
             <Select
               size="small"
-              value={blendMode}
-              onChange={e => setBlendMode(e.target.value as BlendMode)}
-              renderValue={v => `blend: ${v}`}
+              value={blend.mode}
+              onChange={e => setBlend(prev => ({ ...prev, mode: e.target.value as BlendMode }))}
+              renderValue={v => {
+                const n = Object.keys(blend.perFunction).length
+                return `blend: ${v}${n ? ` · ${n} per-function` : ''}`
+              }}
               sx={{ color: 'inherit', fontSize: '0.8rem', height: 30, mr: 1, '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.4)' }, '.MuiSvgIcon-root': { color: 'inherit' } }}
             >
               {BLEND_MODES.map(m => (
@@ -386,7 +399,19 @@ function App() {
 
         {showResolution && (
           <Box sx={{ width: 300, flexShrink: 0, borderLeft: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-            <ResolutionPanel description={description} layers={layers} blendMode={blendMode} />
+            <ResolutionPanel
+              description={description}
+              layers={layers}
+              blend={blend}
+              onFunctionModeChange={(name, mode) =>
+                setBlend(prev => {
+                  const perFunction = { ...prev.perFunction }
+                  if (mode) perFunction[name] = mode
+                  else delete perFunction[name]
+                  return { ...prev, perFunction }
+                })
+              }
+            />
           </Box>
         )}
       </Box>

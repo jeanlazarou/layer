@@ -48,14 +48,18 @@ tests all go through it.
 ## Name resolution
 
 1. Local environment (parameters, `let`, pattern bindings, variables seeded with `SetVar`/`-D`).
-2. The layer stack, top to bottom, combined according to the blend mode:
+2. The layer stack, top to bottom, combined according to the name's blend mode (its per-function mode
+   from `blend: {name: mode}`, else the stack default):
    - `override`: the topmost definition.
    - `chain`: bottom definition first, each higher one receives the previous result as its first argument.
    - `collect`: every definition, results as a list (top first).
    - `fallback`: top-down, first result that is not `None`; failing layers are skipped with a `[WARN]` log.
 
-`layer.name` (e.g. `core.fib`) reads one layer directly. Unqualified calls are late-bound, so recursion inside
-a lower layer re-enters the top of the stack (open recursion); qualified recursion stays inside the layer.
+`layer.name` (e.g. `core.fib`) reads one layer directly. Under `override`, unqualified calls are late-bound,
+so recursion inside a lower layer re-enters the top of the stack (open recursion); qualified recursion stays
+inside the layer. The combining modes apply once per outermost call: `Interpreter.combining` counts the
+combined calls running per name, and while one runs, an unqualified call from a layer that defines the name
+resolves to that layer's own definition.
 
 With an `@layers` directive, declared but unlisted layers are inactive; their definitions are never loaded.
 
@@ -113,5 +117,5 @@ panel; `executeLayer` runs programs and UI button handlers (input values passed 
 
 ## Not implemented
 
-Type inference (Hindley-Milner is specified in LANGUAGE_SPEC.md only), modules, a REPL, per-function blend
-modes, tuple patterns, and running programs off the browser's main thread.
+Type inference (Hindley-Milner is specified in LANGUAGE_SPEC.md only), modules, a REPL, tuple patterns, and
+running programs off the browser's main thread.

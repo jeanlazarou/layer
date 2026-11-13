@@ -4,6 +4,19 @@ Complete history of the Go/WASM implementation migration.
 
 ---
 
+## November 13, 2026 - Per-function blend modes; combining modes apply once per call
+
+- `@layers [...] blend: {fetch: fallback, total: chain, _: collect}` — per-function modes with `_` as the
+  default; `blend: chain` still means every function. Repeated names and unknown modes are parse errors; a
+  name that no layer (active or hidden) defines is a check error.
+- chain/collect/fallback now apply once per outermost call: recursion inside a participating layer stays in
+  that layer. The chain example `f(2)` is 20 (was 110). `override` keeps open recursion.
+- `Describe` reports each function's mode; `sourcefile` reports per-function modes; the editor's resolution
+  panel can set them.
+- New example: `examples/blend_per_function.layer`.
+
+---
+
 ## November 13, 2026 - Language checks, CLI, and editor overhaul
 
 ### Language

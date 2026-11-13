@@ -100,7 +100,14 @@ factorial(3)`;
     assert.strictEqual(d.success, true);
     assert.strictEqual(d.description.blendMode, 'override');
     assert.deepStrictEqual(d.description.layers.map(l => [l.name, l.pure]), [['core', true], ['debug', false]]);
-    assert.deepStrictEqual(d.description.resolutions, [{ name: 'factorial', layers: ['debug', 'core'] }]);
+    assert.deepStrictEqual(d.description.resolutions, [{ name: 'factorial', layers: ['debug', 'core'], mode: 'override' }]);
+  });
+
+  check('per-function blend modes: describe, split, and run', () => {
+    const src = '@layers [core, data, cache] blend: {fetch: fallback}\n@layer core {\n  fn fetch(k) = data.Some(k)\n}\n@layer cache {\n  fn fetch(k) = data.None()\n}\ndata.unwrap(fetch("a"), "?")';
+    assert.deepStrictEqual(describe(src).description.resolutions, [{ name: 'fetch', layers: ['cache', 'core'], mode: 'fallback' }]);
+    assert.deepStrictEqual(split(src).blendModes, { fetch: 'fallback' });
+    assert.strictEqual(run(src).result, 'a');
   });
 
   check('splits files, including impure and inactive layers', () => {

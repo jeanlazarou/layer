@@ -75,6 +75,9 @@ add(1, ?)                             # partial application`}</Code>
             <li><strong>collect</strong> — every layer runs; results come back as a list</li>
             <li><strong>fallback</strong> — try top-down; the first result that is not <code>None</code> wins</li>
           </ul>
+          A function defined in several layers can choose its own mode in the “Who answers each call?” panel (in
+          source: <code>blend: {'{'}fetch: fallback, total: chain{'}'}</code>). Combining modes apply once per call:
+          recursion inside a layer stays in that layer.
         </Typography>
       </Section>
 

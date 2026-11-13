@@ -30,7 +30,8 @@ URLs, so a sub-path such as GitHub Pages' `/layer/` works). The repository's
   you type, as editor markers and as an error count on the layer card. Runtime errors in the Output panel
   show the layer, line and Layer call trace; click one to jump to it.
 - **Who answers each call?** (tree icon). For every function, it lists which layers define it, which one
-  answers under the current blend mode, and which are shadowed.
+  answers under its blend mode, and which are shadowed. Functions defined in several layers get a mode
+  selector, which writes per-function modes (`blend: {fetch: fallback}`) into the program.
 - **Examples** menu with every program from [`examples/`](../examples/), plus **Open/Save** of `.layer`
   files (Save keeps hidden layers). Your work is also kept in the browser's localStorage between visits.
 - **Interactive UI.** When the main expression returns a `ui` component, the Output panel renders it with

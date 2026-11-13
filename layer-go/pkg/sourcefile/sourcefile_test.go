@@ -258,3 +258,29 @@ fetch("a")`)
 		t.Errorf("main %q", file.MainExpression)
 	}
 }
+
+func TestSplitBlendMap(t *testing.T) {
+	file, err := Split(`@layers [core, cache] blend: {_: chain, fetch: fallback}
+@layer core {
+    fn fetch(k) = k
+}
+fetch(1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.BlendMode != "chain" || file.BlendModes["fetch"] != "fallback" || len(file.BlendModes) != 1 {
+		t.Errorf("blend %q %v", file.BlendMode, file.BlendModes)
+	}
+	if file.MainExpression != "fetch(1)" {
+		t.Errorf("main %q", file.MainExpression)
+	}
+
+	// No @layer blocks: the blend map must not leak into the main expression.
+	file, err = Split("@layers [core] blend: {_: collect}\n1 + 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.MainExpression != "1 + 1" {
+		t.Errorf("main %q", file.MainExpression)
+	}
+}
