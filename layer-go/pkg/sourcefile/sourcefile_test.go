@@ -219,3 +219,42 @@ func TestDedent(t *testing.T) {
 		t.Errorf("Dedent failed.\nExpected:\n%s\nGot:\n%s", expected, got)
 	}
 }
+
+func TestSplitPurityBlendAndInactiveLayers(t *testing.T) {
+	file, err := Split(`@layers [core, cache] blend: fallback
+
+@layer<impure> cache {
+    fn fetch(k) = k
+}
+
+@layer<pure> core {
+    fn id2(x) = x
+}
+
+@layer hidden {
+    fn h() = 1
+}
+
+fetch("a")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.BlendMode != "fallback" {
+		t.Errorf("blend mode %q", file.BlendMode)
+	}
+	if file.Layers["cache"] != "fn fetch(k) = k" {
+		t.Errorf("impure layer body not extracted: %q", file.Layers["cache"])
+	}
+	if file.Purity["cache"] != "impure" || file.Purity["core"] != "pure" {
+		t.Errorf("purity %v", file.Purity)
+	}
+	if strings.Join(file.DeclaredLayers, ",") != "cache,core,hidden" {
+		t.Errorf("declared layers %v", file.DeclaredLayers)
+	}
+	if strings.Join(file.EnabledLayers, ",") != "core,cache" {
+		t.Errorf("enabled layers %v", file.EnabledLayers)
+	}
+	if file.MainExpression != `fetch("a")` {
+		t.Errorf("main %q", file.MainExpression)
+	}
+}

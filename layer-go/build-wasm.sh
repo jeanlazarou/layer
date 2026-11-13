@@ -1,39 +1,31 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Build the Layer interpreter to WebAssembly for the visual editor.
+#
+# Writes layer.wasm and the matching wasm_exec.js (the Go JS runtime glue,
+# which must come from the same Go version that compiled the module) into
+# visual-editor/frontend/public/.
+set -euo pipefail
 
-# Build Layer language to WebAssembly
+cd "$(dirname "$0")"
+OUT_DIR="../visual-editor/frontend/public"
+mkdir -p "$OUT_DIR"
 
-echo "Building Layer WASM module..."
+echo "Building Layer WASM module with $(go version | awk '{print $3}')..."
+GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o "$OUT_DIR/layer.wasm" ./cmd/wasm
 
-# Build the WASM file
-GOOS=js GOARCH=wasm go build -o layer.wasm ./cmd/wasm
-
-if [ $? -eq 0 ]; then
-    echo "✅ Successfully built layer.wasm"
-
-    # Get the size
-    SIZE=$(ls -lh layer.wasm | awk '{print $5}')
-    echo "📦 WASM file size: $SIZE"
-
-    # Copy Go's WASM JavaScript support file
-    GOROOT=$(go env GOROOT)
-    if [ -f "$GOROOT/misc/wasm/wasm_exec.js" ]; then
-        cp "$GOROOT/misc/wasm/wasm_exec.js" .
-        echo "✅ Copied wasm_exec.js"
-    else
-        echo "⚠️  Warning: Could not find wasm_exec.js"
+GOROOT="$(go env GOROOT)"
+WASM_EXEC=""
+for candidate in "$GOROOT/lib/wasm/wasm_exec.js" "$GOROOT/misc/wasm/wasm_exec.js"; do
+    if [ -f "$candidate" ]; then
+        WASM_EXEC="$candidate"
+        break
     fi
-
-    # Keep the frontend's embedded copy in sync
-    FRONTEND_PUBLIC="../visual-editor/frontend/public"
-    if [ -d "$FRONTEND_PUBLIC" ]; then
-        cp layer.wasm "$FRONTEND_PUBLIC/"
-        [ -f wasm_exec.js ] && cp wasm_exec.js "$FRONTEND_PUBLIC/"
-        echo "✅ Copied layer.wasm (and wasm_exec.js) to $FRONTEND_PUBLIC"
-    fi
-
-    echo ""
-    echo "🚀 WASM module ready!"
-else
-    echo "❌ Build failed"
+done
+if [ -z "$WASM_EXEC" ]; then
+    echo "❌ Could not find wasm_exec.js under $GOROOT" >&2
     exit 1
 fi
+cp "$WASM_EXEC" "$OUT_DIR/wasm_exec.js"
+
+echo "✅ $(ls -lh "$OUT_DIR/layer.wasm" | awk '{print $5}') → $OUT_DIR/layer.wasm"
+echo "✅ wasm_exec.js copied from $WASM_EXEC"

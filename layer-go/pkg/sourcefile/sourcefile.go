@@ -16,12 +16,20 @@ import (
 type File struct {
 	// EnabledLayers holds the layer names from the @layers directive, in
 	// declaration order (conditional entries are included by name).
-	EnabledLayers []string
+	EnabledLayers []string `json:"enabledLayers"`
+	// DeclaredLayers holds the names of all @layer blocks in source order,
+	// including blocks not listed in @layers (inactive layers).
+	DeclaredLayers []string `json:"declaredLayers"`
 	// Layers maps each @layer block name to its dedented body source.
-	Layers map[string]string
+	Layers map[string]string `json:"layers"`
+	// Purity maps a layer name to its explicit annotation ("pure" or
+	// "impure") when the block was written as @layer<...> name.
+	Purity map[string]string `json:"purity"`
+	// BlendMode is the @layers blend mode, or "" when not specified.
+	BlendMode string `json:"blendMode"`
 	// MainExpression is the source text after the last @layer block (or
 	// after the @layers directive when there are no blocks).
-	MainExpression string
+	MainExpression string `json:"mainExpression"`
 }
 
 // Split parses source and returns its components. The source must be a
@@ -38,13 +46,26 @@ func Split(source string) (*File, error) {
 	}
 
 	file := &File{
-		EnabledLayers: []string{},
-		Layers:        make(map[string]string),
+		EnabledLayers:  []string{},
+		DeclaredLayers: []string{},
+		Layers:         make(map[string]string),
+		Purity:         make(map[string]string),
 	}
 
 	if program.LayersDirective != nil {
 		for _, entry := range program.LayersDirective.Layers {
 			file.EnabledLayers = append(file.EnabledLayers, entry.Name)
+		}
+		file.BlendMode = program.LayersDirective.BlendMode
+	}
+	for _, decl := range program.LayerDeclarations {
+		file.DeclaredLayers = append(file.DeclaredLayers, decl.LayerName)
+		switch decl.Purity {
+		case "":
+		case "pure":
+			file.Purity[decl.LayerName] = "pure"
+		default:
+			file.Purity[decl.LayerName] = "impure"
 		}
 	}
 
@@ -121,6 +142,11 @@ func nextSignificant(tokens []lexer.Token, atIndex int) (lexer.TokenType, lexer.
 	}
 
 	nameIdx := skipComments(tokens, i+1)
+	// Optional purity annotation: @layer<impure> name
+	if nameIdx+2 < len(tokens) && tokens[nameIdx].Type == lexer.LT &&
+		tokens[nameIdx+1].Type == lexer.IDENTIFIER && tokens[nameIdx+2].Type == lexer.GT {
+		nameIdx = skipComments(tokens, nameIdx+3)
+	}
 	if nameIdx >= len(tokens) || tokens[nameIdx].Type != lexer.IDENTIFIER {
 		return kind, lexer.Token{}, -1
 	}
