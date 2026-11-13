@@ -10,8 +10,14 @@ export type StorageMode = 'virtual' | 'real';
 
 export interface OptionResult {
   type: 'Some' | 'None';
-  value?: any;
+  value?: unknown;
 }
+
+// File System Access API pieces missing from TypeScript's DOM typings.
+type DirectoryPickerWindow = Window & {
+  showDirectoryPicker(options: { mode: 'read' | 'readwrite' }): Promise<FileSystemDirectoryHandle>;
+  layerFileSystem?: Record<string, unknown>;
+};
 
 class BrowserFileSystem {
   private mode: StorageMode = 'virtual';
@@ -51,7 +57,7 @@ class BrowserFileSystem {
     }
 
     try {
-      this.directoryHandle = await (window as any).showDirectoryPicker({
+      this.directoryHandle = await (window as unknown as DirectoryPickerWindow).showDirectoryPicker({
         mode: 'readwrite',
       });
       this.mode = 'real';
@@ -192,7 +198,9 @@ class BrowserFileSystem {
         const dirHandle = await this.getDirectoryHandle(directory);
         const files: string[] = [];
 
-        for await (const entry of dirHandle.values()) {
+        // values() is missing from TypeScript's DOM typings for this handle.
+        const entries = (dirHandle as unknown as { values(): AsyncIterable<FileSystemHandle> }).values();
+        for await (const entry of entries) {
           files.push(entry.name);
         }
 
@@ -278,7 +286,7 @@ class BrowserFileSystem {
 export const browserFS = new BrowserFileSystem();
 
 // Expose to WASM via window
-(window as any).layerFileSystem = {
+(window as unknown as DirectoryPickerWindow).layerFileSystem = {
   // Storage mode control
   isSupported: () => browserFS.isFileSystemAccessSupported(),
   getMode: () => browserFS.getMode(),

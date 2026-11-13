@@ -12,6 +12,8 @@ import {
   Select,
   MenuItem,
   Alert,
+  FormControlLabel,
+  Switch,
 } from '@mui/material'
 import type { Layer } from '../types'
 
@@ -33,7 +35,8 @@ const LAYER_COLORS = [
   { name: 'Indigo', value: '#3f51b5' },
 ]
 
-const DEFAULT_LAYER_CODE = `# Custom layer
+const DEFAULT_LAYER_CODE = `# Define functions here. To wrap a function from a lower layer,
+# redefine it and call the original explicitly, e.g. core.factorial(n).
 fn example() =
   42
 `
@@ -47,6 +50,7 @@ const AddLayerDialog: React.FC<AddLayerDialogProps> = ({
   const [layerName, setLayerName] = useState('')
   const [color, setColor] = useState(LAYER_COLORS[3].value) // Purple default
   const [error, setError] = useState('')
+  const [impure, setImpure] = useState(false)
 
   const handleAdd = () => {
     const trimmedName = layerName.trim().toLowerCase()
@@ -67,7 +71,7 @@ const AddLayerDialog: React.FC<AddLayerDialogProps> = ({
       return
     }
 
-    if (['core', 'main'].includes(trimmedName)) {
+    if (['core', 'ui', 'debug', 'data', 'main'].includes(trimmedName)) {
       setError('This layer name is reserved')
       return
     }
@@ -79,6 +83,7 @@ const AddLayerDialog: React.FC<AddLayerDialogProps> = ({
       color,
       locked: false,
       code: DEFAULT_LAYER_CODE,
+      impure: impure || undefined,
     }
 
     onAdd(newLayer)
@@ -89,6 +94,7 @@ const AddLayerDialog: React.FC<AddLayerDialogProps> = ({
     setLayerName('')
     setColor(LAYER_COLORS[3].value)
     setError('')
+    setImpure(false)
     onClose()
   }
 
@@ -140,8 +146,13 @@ const AddLayerDialog: React.FC<AddLayerDialogProps> = ({
             </Select>
           </FormControl>
 
+          <FormControlLabel
+            control={<Switch checked={impure} onChange={e => setImpure(e.target.checked)} />}
+            label="Impure — may call effects such as log() or data I/O (@layer<impure>)"
+          />
+
           <Alert severity="info">
-            The layer will be created with default template code. You can edit it after creation.
+            The new layer goes on top of the stack, so its functions override lower layers. Drag it to change its position.
           </Alert>
         </Box>
       </DialogContent>

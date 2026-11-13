@@ -86,32 +86,32 @@
 
                 # Calculator keypad with operators
                 row([
-                    button({label: "7", onclick: "append_digit(display, '7')"}),
-                    button({label: "8", onclick: "append_digit(display, '8')"}),
-                    button({label: "9", onclick: "append_digit(display, '9')"}),
-                    button({label: "÷", onclick: "append_operator(display, '/')"}),
-                    button({label: "C", onclick: "clear()"})
+                    button({label: "7", onclick: "append_digit(display, '7')", target: "display"}),
+                    button({label: "8", onclick: "append_digit(display, '8')", target: "display"}),
+                    button({label: "9", onclick: "append_digit(display, '9')", target: "display"}),
+                    button({label: "÷", onclick: "append_operator(display, '/')", target: "display"}),
+                    button({label: "C", onclick: "clear()", target: "display"})
                 ]),
                 row([
-                    button({label: "4", onclick: "append_digit(display, '4')"}),
-                    button({label: "5", onclick: "append_digit(display, '5')"}),
-                    button({label: "6", onclick: "append_digit(display, '6')"}),
-                    button({label: "×", onclick: "append_operator(display, '*')"}),
-                    button({label: "x²", onclick: "calc_square(display)"})
+                    button({label: "4", onclick: "append_digit(display, '4')", target: "display"}),
+                    button({label: "5", onclick: "append_digit(display, '5')", target: "display"}),
+                    button({label: "6", onclick: "append_digit(display, '6')", target: "display"}),
+                    button({label: "×", onclick: "append_operator(display, '*')", target: "display"}),
+                    button({label: "x²", onclick: "calc_square(display)", target: "display"})
                 ]),
                 row([
-                    button({label: "1", onclick: "append_digit(display, '1')"}),
-                    button({label: "2", onclick: "append_digit(display, '2')"}),
-                    button({label: "3", onclick: "append_digit(display, '3')"}),
-                    button({label: "-", onclick: "append_operator(display, '-')"}),
-                    button({label: "%", onclick: "calc_percent(display)"})
+                    button({label: "1", onclick: "append_digit(display, '1')", target: "display"}),
+                    button({label: "2", onclick: "append_digit(display, '2')", target: "display"}),
+                    button({label: "3", onclick: "append_digit(display, '3')", target: "display"}),
+                    button({label: "-", onclick: "append_operator(display, '-')", target: "display"}),
+                    button({label: "%", onclick: "calc_percent(display)", target: "display"})
                 ]),
                 row([
-                    button({label: "0", onclick: "append_digit(display, '0')"}),
-                    button({label: ".", onclick: "append_digit(display, '.')"}),
-                    button({label: "=", onclick: "evaluate(display)"}),
-                    button({label: "+", onclick: "append_operator(display, '+')"}),
-                    button({label: " ", onclick: "display"})
+                    button({label: "0", onclick: "append_digit(display, '0')", target: "display"}),
+                    button({label: ".", onclick: "append_digit(display, '.')", target: "display"}),
+                    button({label: "=", onclick: "evaluate(display)", target: "display"}),
+                    button({label: "+", onclick: "append_operator(display, '+')", target: "display"}),
+                    button({label: " ", onclick: "display", target: "display"})
                 ]),
 
                 # Two-number operations

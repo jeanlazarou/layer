@@ -7,6 +7,7 @@ import {
   IconButton,
   Divider,
   Button,
+  Tooltip,
 } from '@mui/material'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
@@ -14,9 +15,48 @@ import LockIcon from '@mui/icons-material/Lock'
 import LockOpenIcon from '@mui/icons-material/LockOpen'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import AddIcon from '@mui/icons-material/Add'
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import { DragDropContext, Droppable, Draggable, DropResult, DraggableProvidedDragHandleProps } from '@hello-pangea/dnd'
 import AddLayerDialog from './AddLayerDialog'
 import type { Layer, LayerId } from '../types'
+import { isBuiltinLayer, isLayerPure } from '../types'
+
+// ── PurityBadge ────────────────────────────────────────────────────────────────
+
+function PurityBadge({ layer, onToggle }: { layer: Layer; onToggle: () => void }) {
+  const pure = isLayerPure(layer)
+  const builtin = isBuiltinLayer(layer.name)
+  const title = builtin
+    ? `Built-in layer: always ${pure ? 'pure' : 'impure'}`
+    : pure
+      ? 'Pure: cannot call effects (log, data I/O, …). Click to mark @layer<impure>.'
+      : 'Impure: may perform effects. Click to make it pure.'
+  return (
+    <Tooltip title={title}>
+      <Box
+        component="span"
+        onClick={(e: React.MouseEvent) => {
+          e.stopPropagation()
+          if (!builtin) onToggle()
+        }}
+        sx={{
+          fontSize: '0.6rem',
+          px: 0.6,
+          py: 0.1,
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: pure ? '#2e7d32' : '#e65100',
+          color: pure ? '#2e7d32' : '#e65100',
+          cursor: builtin ? 'default' : 'pointer',
+          fontWeight: 600,
+          userSelect: 'none',
+        }}
+      >
+        {pure ? 'pure' : 'impure'}
+      </Box>
+    </Tooltip>
+  )
+}
 
 // ── Diff utilities ─────────────────────────────────────────────────────────────
 
@@ -126,23 +166,29 @@ function DiffSection({ diff, layerBelowName }: { diff: DiffResult; layerBelowNam
 interface LayerCardProps {
   layer: Layer
   isSelected: boolean
+  errorCount: number
   diff?: DiffResult
   layerBelowName?: string
   onSelect: () => void
   onToggle: (layerId: string) => void
   onLockToggle: (layerId: string) => void
+  onPurityToggle: (layerId: string) => void
+  onDelete: (layerId: string) => void
   isDragging?: boolean
-  dragHandleProps?: any
+  dragHandleProps?: DraggableProvidedDragHandleProps | null
 }
 
 const LayerCard: React.FC<LayerCardProps> = ({
   layer,
   isSelected,
+  errorCount,
   diff,
   layerBelowName,
   onSelect,
   onToggle,
   onLockToggle,
+  onPurityToggle,
+  onDelete,
   isDragging = false,
   dragHandleProps
 }) => {
@@ -198,6 +244,20 @@ const LayerCard: React.FC<LayerCardProps> = ({
             {layer.name}
           </Typography>
 
+          {!isBuiltinLayer(layer.name) && (
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete(layer.id)
+              }}
+              title="Delete layer"
+              sx={{ p: 0.5 }}
+            >
+              <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          )}
+
           <IconButton
             size="small"
             onClick={(e) => {
@@ -233,10 +293,20 @@ const LayerCard: React.FC<LayerCardProps> = ({
           </IconButton>
         </Box>
 
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
-          {layer.enabled ? 'Active' : 'Disabled'}
-          {layer.locked && ' • Locked'}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <PurityBadge layer={layer} onToggle={() => onPurityToggle(layer.id)} />
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', flexGrow: 1 }}>
+            {layer.enabled ? 'Active' : 'Hidden'}
+            {layer.locked && ' • Locked'}
+          </Typography>
+          {errorCount > 0 && (
+            <Tooltip title={`${errorCount} error${errorCount > 1 ? 's' : ''} in this layer`}>
+              <Box component="span" sx={{ fontSize: '0.65rem', fontWeight: 700, color: 'error.main' }}>
+                ● {errorCount}
+              </Box>
+            </Tooltip>
+          )}
+        </Box>
 
         {isSelected && diff && layerBelowName && (
           <DiffSection diff={diff} layerBelowName={layerBelowName} />
@@ -273,9 +343,12 @@ function DiffLegend() {
 interface LayerStackProps {
   layers: Layer[]
   selectedLayerId: LayerId
+  errorCounts: Record<string, number>
   onLayerSelect: (layerId: LayerId) => void
   onLayerToggle: (layerId: string) => void
   onLockToggle: (layerId: string) => void
+  onPurityToggle: (layerId: string) => void
+  onDeleteLayer: (layerId: string) => void
   onLayerReorder: (layers: Layer[]) => void
   onAddLayer: (layer: Omit<Layer, 'id'>) => void
 }
@@ -283,9 +356,12 @@ interface LayerStackProps {
 const LayerStack: React.FC<LayerStackProps> = ({
   layers,
   selectedLayerId,
+  errorCounts,
   onLayerSelect,
   onLayerToggle,
   onLockToggle,
+  onPurityToggle,
+  onDeleteLayer,
   onLayerReorder,
   onAddLayer,
 }) => {
@@ -313,8 +389,11 @@ const LayerStack: React.FC<LayerStackProps> = ({
 
   return (
     <Box sx={{ p: 1.5 }}>
-      <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 600, fontSize: '0.95rem' }}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
         Layer Stack
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25, fontSize: '0.68rem' }}>
+        Top layers answer calls first. Drag to reorder; click the eye to hide a layer.
       </Typography>
 
       <DragDropContext onDragEnd={handleDragEnd}>
@@ -345,11 +424,14 @@ const LayerStack: React.FC<LayerStackProps> = ({
                       <LayerCard
                         layer={layer}
                         isSelected={selectedLayerId === layer.id}
+                        errorCount={errorCounts[layer.id] ?? 0}
                         diff={selectedLayerId === layer.id ? selectedDiff : undefined}
                         layerBelowName={selectedLayerId === layer.id ? layerBelow?.name : undefined}
                         onSelect={() => onLayerSelect(layer.id)}
                         onToggle={onLayerToggle}
                         onLockToggle={onLockToggle}
+                        onPurityToggle={onPurityToggle}
+                        onDelete={onDeleteLayer}
                         isDragging={snapshot.isDragging}
                         dragHandleProps={provided.dragHandleProps}
                       />
@@ -377,11 +459,18 @@ const LayerStack: React.FC<LayerStackProps> = ({
         onClick={() => onLayerSelect('main')}
       >
         <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
-            Main Expression
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.875rem', flexGrow: 1 }}>
+              Main Expression
+            </Typography>
+            {(errorCounts.main ?? 0) > 0 && (
+              <Box component="span" sx={{ fontSize: '0.65rem', fontWeight: 700, color: 'error.main' }}>
+                ● {errorCounts.main}
+              </Box>
+            )}
+          </Box>
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-            Entry point
+            Entry point — runs on top of the whole stack
           </Typography>
         </CardContent>
       </Card>

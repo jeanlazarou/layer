@@ -1,135 +1,99 @@
-// Layer WASM Module Loader and Interface
-import './browserFileSystem';
-
-interface ExecuteResult {
-  success: boolean;
-  result?: string;
-  logs?: string[];
-  error?: string;
-}
-
-interface ParseResult {
-  success: boolean;
-  enabledLayers?: string[];
-  layers?: Record<string, string>;
-  mainExpression?: string;
-  error?: string;
-}
+// Layer WASM module loader and typed interface.
+//
+// The Go module (layer-go/cmd/wasm) exports three functions that take source
+// text and return JSON strings; this wrapper loads the module once and
+// parses the results.
+import './browserFileSystem'
+import type { DescribeResult, RunResult, SplitResult } from '../types'
 
 declare global {
   interface Window {
-    Go: any;
-    executeLayer: (code: string) => ExecuteResult;
-    parseLayerFile: (content: string) => ParseResult;
+    // Provided by wasm_exec.js
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Go: any
+    executeLayer?: (source: string, varsJSON?: string) => string
+    describeLayer?: (source: string) => string
+    parseLayerFile?: (source: string) => string
   }
 }
 
-class LayerWasm {
-  private loaded: boolean = false;
-  private loading: Promise<void> | null = null;
+// Respect Vite's base path so the editor works when deployed under a
+// sub-path (e.g. GitHub Pages at /layer/).
+const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`
 
-  /**
-   * Load the WASM module
-   */
-  async load(): Promise<void> {
-    if (this.loaded) {
-      return;
-    }
+let loading: Promise<void> | null = null
 
-    if (this.loading) {
-      return this.loading;
-    }
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = src
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error(`Failed to load script: ${src}`))
+    document.head.appendChild(script)
+  })
+}
 
-    this.loading = this.loadWasm();
-    await this.loading;
-    this.loaded = true;
+async function loadWasm(): Promise<void> {
+  await loadScript(asset('wasm_exec.js'))
+  const go = new window.Go()
+  const response = await fetch(asset('layer.wasm'))
+  if (!response.ok) {
+    throw new Error(`Could not fetch layer.wasm (${response.status}). Run layer-go/build-wasm.sh first.`)
   }
+  // instantiate (not instantiateStreaming): works even when a static host
+  // serves .wasm with the wrong MIME type.
+  const { instance } = await WebAssembly.instantiate(await response.arrayBuffer(), go.importObject)
+  // go.run resolves only when the Go program exits, which it never does.
+  void go.run(instance)
+}
 
-  private async loadWasm(): Promise<void> {
-    try {
-      // Load the wasm_exec.js script
-      await this.loadScript('/wasm_exec.js');
-
-      // Create Go instance
-      const go = new window.Go();
-
-      // Fetch and instantiate the WASM module
-      const response = await fetch('/layer.wasm');
-      const buffer = await response.arrayBuffer();
-      const result = await WebAssembly.instantiate(buffer, go.importObject);
-
-      // Run the WASM module
-      go.run(result.instance);
-
-      console.log('Layer WASM module loaded successfully!');
-    } catch (error) {
-      console.error('Failed to load Layer WASM module:', error);
-      throw new Error(`WASM loading failed: ${error}`);
-    }
+/** Load the interpreter (idempotent). */
+export function loadLayer(): Promise<void> {
+  if (!loading) {
+    loading = loadWasm().catch((error) => {
+      loading = null
+      throw error
+    })
   }
+  return loading
+}
 
-  private loadScript(src: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-      document.head.appendChild(script);
-    });
+function internalError(message: string) {
+  return { success: false, errors: [{ kind: 'internal' as const, line: 0, column: 0, message }] }
+}
+
+async function call<T>(fn: 'executeLayer' | 'describeLayer' | 'parseLayerFile', ...args: string[]): Promise<T> {
+  try {
+    await loadLayer()
+  } catch (error) {
+    return internalError(`Interpreter failed to load: ${error instanceof Error ? error.message : error}`) as T
   }
-
-  /**
-   * Execute Layer source code
-   */
-  async execute(code: string): Promise<ExecuteResult> {
-    await this.load();
-
-    if (!window.executeLayer) {
-      throw new Error('executeLayer function not available');
-    }
-
-    try {
-      const result = window.executeLayer(code);
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        error: `Execution error: ${error}`,
-      };
-    }
+  const exported = window[fn] as ((...a: string[]) => string) | undefined
+  if (!exported) {
+    return internalError(`${fn} is not available — the interpreter may have crashed; reload the page`) as T
   }
-
-  /**
-   * Parse a .layer file
-   */
-  async parseFile(content: string): Promise<ParseResult> {
-    await this.load();
-
-    if (!window.parseLayerFile) {
-      throw new Error('parseLayerFile function not available');
-    }
-
-    try {
-      const result = window.parseLayerFile(content);
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        error: `Parse error: ${error}`,
-      };
-    }
-  }
-
-  /**
-   * Check if WASM module is loaded
-   */
-  isLoaded(): boolean {
-    return this.loaded;
+  try {
+    return JSON.parse(exported(...args)) as T
+  } catch (error) {
+    return internalError(`${fn} failed: ${error instanceof Error ? error.message : error}`) as T
   }
 }
 
-// Create singleton instance
-const layerWasm = new LayerWasm();
+/**
+ * Run a program. `vars` are bound as top-level variables (current values of
+ * UI inputs) — passed as data, never spliced into the source.
+ */
+export async function runProgram(source: string, vars?: Record<string, string | number>): Promise<RunResult> {
+  const result = await call<Partial<RunResult>>('executeLayer', source, ...(vars ? [JSON.stringify(vars)] : []))
+  return { success: false, errors: [], result: '', kind: 'none', logs: [], ...result }
+}
 
-export default layerWasm;
-export type { ExecuteResult, ParseResult };
+/** Load a program without running it and describe its layer stack. */
+export function describeProgram(source: string): Promise<DescribeResult> {
+  return call<DescribeResult>('describeLayer', source)
+}
+
+/** Split a .layer file into its layers, blend mode, and main expression. */
+export function splitLayerFile(source: string): Promise<SplitResult> {
+  return call<SplitResult>('parseLayerFile', source)
+}

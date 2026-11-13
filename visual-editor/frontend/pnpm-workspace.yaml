@@ -1,0 +1,4 @@
+# Packages whose install scripts may run (pnpm blocks them by default).
+# esbuild (used by Vite) verifies its platform-specific binary on install.
+allowBuilds:
+  esbuild: true

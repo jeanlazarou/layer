@@ -1,4 +1,4 @@
-# Simple Calculator Example
+# Simple Calculator with Text Inputs
 # Basic calculator with input fields for operands
 
 @layers [core, ui]

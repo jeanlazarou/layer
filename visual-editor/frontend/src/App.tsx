@@ -1,457 +1,409 @@
-import React, { useState, useCallback, useRef } from 'react'
-import { Box, AppBar, Toolbar, Typography, IconButton, Tooltip, Dialog, DialogContent, DialogTitle } from '@mui/material'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Box,
+  AppBar,
+  Toolbar,
+  Typography,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Button,
+  Menu,
+  MenuItem,
+  ListItemText,
+  Select,
+  Divider,
+} from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import SaveIcon from '@mui/icons-material/Save'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
+import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
-import OpenInFullIcon from '@mui/icons-material/OpenInFull'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen'
-import LayerStack from './components/LayerStack'
-import CodeEditor from './components/CodeEditor'
-import OutputConsole from './components/OutputConsole'
-import FlowDiagram from './components/FlowDiagram'
-import { executeLayerCode, parseLayerFile } from './api/layerApi'
-import type { Layer, LayerId } from './types'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 
-const INITIAL_LAYERS: Layer[] = [
-  {
-    id: 'debug',
-    name: 'debug',
-    enabled: true,
-    color: '#ff9800',
-    code: `# Debug layer wraps core functions with logging
-fn factorial(n) =
-  let _ = log("Computing factorial of {n}") in
-    core.factorial(n)`,
-  },
-  {
-    id: 'ui',
-    name: 'ui',
-    enabled: true,
-    color: '#2196f3',
-    code: `# UI layer for rendering results
-fn app() =
-  view({
-    title: "Factorial Calculator",
-    children: [
-      text({content: "Result: {factorial(5)}"})
-    ]
-  })`,
-  },
-  {
-    id: 'data',
-    name: 'data',
-    enabled: false,
-    color: '#9c27b0',
-    code: `# Data layer for persistence
-# Example: saving factorial results
-fn save_result(n, result) =
-  let _ = write_json("results.json", {input: n, output: result}) in
-    result`,
-  },
-  {
-    id: 'core',
-    name: 'core',
-    enabled: true,
-    color: '#4caf50',
-    locked: true,
-    code: `# Core layer - pure functional logic
-fn factorial(n) =
-  match n with
-  | 0 -> 1
-  | n -> n * factorial(n - 1)`,
-  },
-]
+import LayerStack from './components/LayerStack'
+import CodeEditor from './components/CodeEditor'
+import OutputConsole, { IDLE_OUTPUT, type OutputState } from './components/OutputConsole'
+import ResolutionPanel from './components/ResolutionPanel'
+import HelpDialog from './components/HelpDialog'
+import { describeProgram, runProgram, splitLayerFile } from './wasm/layerWasm'
+import { buildProgram, describeLocation, locateIssue, normalizeOrder, projectFromSplit, serializeProject, type Program } from './program'
+import { loadWorkspace, saveWorkspace } from './storage'
+import { EXAMPLES } from './examples'
+import { DEFAULT_BLEND, DEFAULT_LAYERS, DEFAULT_MAIN } from './defaults'
+import { BLEND_MODES, isLayerPure, type BlendMode, type Description, type Layer, type LayerId, type LocatedIssue } from './types'
 
-const INITIAL_MAIN_CODE = `# Main expression
-factorial(5)`
+const saved = loadWorkspace()
 
 function App() {
-  const [layers, setLayers] = useState<Layer[]>(INITIAL_LAYERS)
+  const [layers, setLayers] = useState<Layer[]>(() => normalizeOrder(saved?.layers ?? DEFAULT_LAYERS))
+  const [mainCode, setMainCode] = useState(saved?.mainCode ?? DEFAULT_MAIN)
+  const [blendMode, setBlendMode] = useState<BlendMode>(saved?.blendMode ?? DEFAULT_BLEND)
+  const [projectName, setProjectName] = useState(saved?.projectName ?? '')
   const [selectedLayerId, setSelectedLayerId] = useState<LayerId>('core')
-  const [mainCode, setMainCode] = useState(INITIAL_MAIN_CODE)
-  const [output, setOutput] = useState('')
-  const [isExecuting, setIsExecuting] = useState(false)
-  const [showFlowDiagram, setShowFlowDiagram] = useState(false)
+
+  const [output, setOutput] = useState<OutputState>(IDLE_OUTPUT)
+  const [description, setDescription] = useState<Description | null>(null)
+  const [liveIssues, setLiveIssues] = useState<LocatedIssue[]>([])
+  const [runIssues, setRunIssues] = useState<{ source: string; issues: LocatedIssue[] }>({ source: '', issues: [] })
+
+  const [showResolution, setShowResolution] = useState(() => window.innerWidth >= 1200)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [consoleMaximized, setConsoleMaximized] = useState(false)
-  const [projectName, setProjectName] = useState<string>('')
+  const [examplesAnchor, setExamplesAnchor] = useState<HTMLElement | null>(null)
+  const [reveal, setReveal] = useState<{ line: number; column: number; nonce: number }>()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const hasRun = useRef(false)
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId)
 
-  const handleLayerReorder = useCallback((newLayers: Layer[]) => {
-    setLayers(newLayers)
-  }, [])
+  // The program as it would run right now (enabled layers only).
+  const program: Program = useMemo(() => buildProgram(layers, mainCode, blendMode), [layers, mainCode, blendMode])
 
-  const handleLayerToggle = useCallback((layerId: string) => {
-    setLayers(prev => prev.map(layer =>
-      layer.id === layerId ? { ...layer, enabled: !layer.enabled } : layer
-    ))
-  }, [])
+  // ── Persistence ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => saveWorkspace({ layers, mainCode, blendMode, projectName }), 300)
+    return () => clearTimeout(t)
+  }, [layers, mainCode, blendMode, projectName])
 
-  const handleLockToggle = useCallback((layerId: string) => {
-    // Core layer cannot be unlocked
-    if (layerId === 'core') return
+  useEffect(() => {
+    document.title = projectName ? `${projectName} — Layer` : 'Layer Visual Editor'
+  }, [projectName])
 
-    setLayers(prev => prev.map(layer =>
-      layer.id === layerId ? { ...layer, locked: !layer.locked } : layer
-    ))
-  }, [])
-
-  const handleAddLayer = useCallback((layerData: Omit<Layer, 'id'>) => {
-    const newLayer: Layer = {
-      ...layerData,
-      id: `custom_${Date.now()}`, // Generate unique ID
+  // ── Live diagnostics + resolution view (debounced while typing) ───────────
+  useEffect(() => {
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const res = await describeProgram(program.source)
+      if (cancelled) return
+      setLiveIssues(res.errors.map(e => locateIssue(e, program)))
+      setDescription(res.success && res.description ? res.description : null)
+    }, 350)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
     }
-    setLayers(prev => [newLayer, ...prev]) // Add at top
-    setSelectedLayerId(newLayer.id) // Auto-select the new layer
-  }, [])
+  }, [program])
 
-  const handleCodeChange = useCallback((code: string) => {
-    if (selectedLayerId === 'main') {
-      setMainCode(code)
-    } else {
-      setLayers(prev => prev.map(layer =>
-        layer.id === selectedLayerId ? { ...layer, code } : layer
-      ))
-    }
-  }, [selectedLayerId])
+  // Runtime errors only stay on screen while the program is unchanged.
+  const issues = useMemo(() => {
+    const runtime = runIssues.source === program.source ? runIssues.issues.filter(i => i.kind === 'runtime') : []
+    return [...liveIssues, ...runtime]
+  }, [liveIssues, runIssues, program.source])
 
-  const handleExecute = async () => {
-    setIsExecuting(true)
-    setOutput('Executing...\n')
+  const errorCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const issue of issues) if (issue.target) counts[issue.target] = (counts[issue.target] ?? 0) + 1
+    return counts
+  }, [issues])
 
-    try {
-      // Build the complete Layer program
-      const enabledLayers = layers.filter(l => l.enabled).reverse() // Reverse for bottom-to-top
-      const layerNames = enabledLayers.map(l => l.name)
+  // ── Running ────────────────────────────────────────────────────────────────
+  const handleRun = useCallback(async () => {
+    hasRun.current = true
+    setOutput(prev => ({ ...prev, status: 'running', notice: undefined }))
+    const res = await runProgram(program.source)
+    const located = res.errors.map(e => locateIssue(e, program))
+    setRunIssues({ source: program.source, issues: located })
+    setOutput({
+      status: 'done',
+      success: res.success,
+      result: res.result,
+      kind: res.kind,
+      logs: res.logs,
+      errors: located,
+    })
+  }, [program])
 
-      let program = `@layers [${layerNames.join(', ')}]\n\n`
+  // Re-run automatically when the stack's structure changes (toggle,
+  // reorder, purity, blend mode) — the core interaction of the editor.
+  const runRef = useRef(handleRun)
+  runRef.current = handleRun
+  const structureKey = JSON.stringify([layers.map(l => [l.id, l.enabled, l.impure ?? false]), blendMode])
+  useEffect(() => {
+    if (hasRun.current) void runRef.current()
+  }, [structureKey])
 
-      enabledLayers.forEach(layer => {
-        program += `@layer ${layer.name} {\n${layer.code}\n}\n\n`
-      })
-
-      program += mainCode
-
-      const result = await executeLayerCode(program)
-
-      if (result.success) {
-        let outputText = ''
-        if (result.logs && result.logs.length > 0) {
-          outputText += result.logs.join('\n') + '\n\n'
-        }
-        outputText += `Result: ${result.result}`
-        setOutput(outputText)
-      } else {
-        setOutput(`Error: ${result.error}`)
+  // UI button handlers: run an expression on top of the current stack with
+  // the input values bound as variables.
+  const handleInteractiveExecute = useCallback(
+    async (expression: string, inputs: Record<string, string | number>): Promise<string> => {
+      const res = await runProgram(buildProgram(layers, mainCode, blendMode, { main: expression }).source, inputs)
+      if (res.logs.length > 0) {
+        setOutput(prev => ({ ...prev, logs: [...prev.logs, ...res.logs] }))
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      setOutput(`Error: ${errorMessage}`)
-    } finally {
-      setIsExecuting(false)
-    }
+      if (!res.success) return `Error: ${res.errors.map(e => e.message).join('; ')}`
+      return res.result
+    },
+    [layers, mainCode, blendMode],
+  )
+
+  // ── Editing ────────────────────────────────────────────────────────────────
+  const handleCodeChange = useCallback(
+    (code: string) => {
+      if (selectedLayerId === 'main') setMainCode(code)
+      else setLayers(prev => prev.map(l => (l.id === selectedLayerId ? { ...l, code } : l)))
+    },
+    [selectedLayerId],
+  )
+
+  const updateLayer = (id: string, change: (l: Layer) => Partial<Layer>) =>
+    setLayers(prev => prev.map(l => (l.id === id ? { ...l, ...change(l) } : l)))
+
+  const handleIssueClick = (issue: LocatedIssue) => {
+    if (!issue.target) return
+    setSelectedLayerId(issue.target)
+    // Let the editor switch buffers before revealing the line.
+    setTimeout(() => setReveal({ line: issue.targetLine, column: issue.targetColumn, nonce: Date.now() }), 0)
+    setConsoleMaximized(false)
   }
 
-  const handleInteractiveExecute = useCallback(async (expression: string, inputs: Record<string, string>): Promise<string> => {
-    try {
-      // Build the Layer program with current layers
-      const enabledLayers = layers.filter(l => l.enabled).reverse()
-      const layerNames = enabledLayers.map(l => l.name)
-
-      let program = `@layers [${layerNames.join(', ')}]\n\n`
-
-      enabledLayers.forEach(layer => {
-        program += `@layer ${layer.name} {\n${layer.code}\n}\n\n`
+  // ── Projects ───────────────────────────────────────────────────────────────
+  const loadSource = async (source: string, name: string) => {
+    const split = await splitLayerFile(source)
+    if (!split.success) {
+      setOutput({
+        ...IDLE_OUTPUT,
+        status: 'done',
+        success: false,
+        notice: `Could not open ${name}:`,
+        errors: split.errors.map(err => ({ ...err, target: null, targetLine: err.line, targetColumn: err.column })),
       })
-
-      // Add input bindings as let expressions
-      // Numbers are passed as-is, strings are quoted
-      const inputBindings = Object.entries(inputs)
-        .map(([name, value]) => {
-          if (typeof value === 'number') {
-            return `let ${name} = ${value} in`
-          } else {
-            return `let ${name} = "${value}" in`
-          }
-        })
-        .join('\n')
-
-      // Execute the expression with input bindings
-      if (inputBindings) {
-        program += `${inputBindings}\n${expression}`
-      } else {
-        program += expression
-      }
-
-      const result = await executeLayerCode(program)
-
-      if (result.success) {
-        return result.result || ''
-      } else {
-        return `Error: ${result.error}`
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      return `Error: ${errorMessage}`
+      return
     }
-  }, [layers])
+    const project = projectFromSplit(split)
+    setDescription(null) // refreshed (debounced) from the new program
+    setLiveIssues([])
+    setLayers(project.layers)
+    setMainCode(project.mainCode)
+    setBlendMode(project.blendMode)
+    setProjectName(name)
+    setSelectedLayerId(project.layers.find(l => l.enabled && l.name !== 'core')?.id ?? 'core')
+    setRunIssues({ source: '', issues: [] })
+    hasRun.current = false
+    const active = project.layers.filter(l => l.enabled).length
+    setOutput({ ...IDLE_OUTPUT, notice: `Opened ${name}: ${active} active layer${active === 1 ? '' : 's'}${project.blendMode !== 'override' ? `, blend: ${project.blendMode}` : ''}. Press ▶ to run.` })
+  }
 
-  const handleSave = useCallback(() => {
-    // Build Layer source code format
-    const enabledLayers = layers.filter(l => l.enabled).reverse() // Reverse for bottom-to-top
-    const layerNames = enabledLayers.map(l => l.name)
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = '' // allow re-opening the same file
+    if (!file) return
+    await loadSource(await file.text(), file.name.replace(/\.layer$/, ''))
+  }
 
-    let layerSource = `# Layer program\n`
-    layerSource += `# Generated by Layer Visual Editor\n\n`
-    layerSource += `@layers [${layerNames.join(', ')}]\n\n`
-
-    enabledLayers.forEach(layer => {
-      layerSource += `@layer ${layer.name} {\n`
-      // Indent the layer code
-      const indentedCode = layer.code.split('\n').map(line => line ? `    ${line}` : '').join('\n')
-      layerSource += indentedCode
-      layerSource += `\n}\n\n`
-    })
-
-    layerSource += `# Main expression\n`
-    layerSource += mainCode
-
-    const blob = new Blob([layerSource], { type: 'text/plain' })
+  const handleSave = () => {
+    const blob = new Blob([serializeProject(layers, mainCode, blendMode)], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'program.layer'
-    document.body.appendChild(a)
+    a.download = `${projectName || 'program'}.layer`
     a.click()
-    document.body.removeChild(a)
     URL.revokeObjectURL(url)
+    setOutput(prev => ({ ...prev, notice: `Saved ${a.download} (hidden layers are kept, but not listed in @layers)` }))
+  }
 
-    setOutput('Project saved to program.layer')
-  }, [layers, mainCode])
+  const handleNew = () => {
+    if (!window.confirm('Start a new project? The current one is only kept if you saved it.')) return
+    setLayers(DEFAULT_LAYERS)
+    setMainCode(DEFAULT_MAIN)
+    setBlendMode(DEFAULT_BLEND)
+    setProjectName('')
+    setSelectedLayerId('core')
+    setRunIssues({ source: '', issues: [] })
+    hasRun.current = false
+    setOutput(IDLE_OUTPUT)
+  }
 
-  const handleLoad = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
+  // ── Layout ─────────────────────────────────────────────────────────────────
+  const editorTitle = selectedLayer ? selectedLayer.name : 'main'
+  const editorBadge = selectedLayer
+    ? `${isLayerPure(selectedLayer) ? 'pure' : 'impure'} layer${selectedLayer.enabled ? '' : ' • hidden (not in @layers)'}`
+    : 'main expression — runs on top of the stack'
+  const bufferId = selectedLayer ? selectedLayer.id : 'main'
+  const bufferIssues = issues.filter(i => i.target === bufferId)
 
-  const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-      try {
-        const content = e.target?.result as string
-
-        // Send to backend for parsing
-        const parseResult = await parseLayerFile(content)
-
-        if (!parseResult.success || !parseResult.enabledLayers || !parseResult.layers) {
-          setOutput(`Error: ${parseResult.error || 'Failed to parse file'}`)
-          return
-        }
-
-        const { enabledLayers: enabledLayerNames, layers: parsedLayers, mainExpression } = parseResult
-
-        // Build layer array: start with all standard layers
-        const loadedLayers: Layer[] = []
-        const standardLayerNames = new Set(['core', 'debug', 'ui', 'data'])
-        const defaultColors = ['#f44336', '#2196f3', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4']
-
-        // Add all standard layers (from INITIAL_LAYERS)
-        INITIAL_LAYERS.forEach(initialLayer => {
-          const isEnabled = enabledLayerNames.includes(initialLayer.name)
-          const hasCode = parsedLayers[initialLayer.name]
-
-          loadedLayers.push({
-            ...initialLayer,
-            enabled: isEnabled,
-            code: hasCode ? parsedLayers[initialLayer.name] : `# ${initialLayer.name} layer\n`,
-          })
-        })
-
-        // Add custom layers (not in standard set)
-        enabledLayerNames.forEach((name, index) => {
-          if (!standardLayerNames.has(name) && parsedLayers[name]) {
-            loadedLayers.push({
-              id: `custom_${name}`,
-              name,
-              enabled: true,
-              color: defaultColors[index % defaultColors.length],
-              locked: false,
-              code: parsedLayers[name],
-            })
-          }
-        })
-
-        // INITIAL_LAYERS is already in correct UI order (debug, ui, core top-to-bottom)
-        setLayers(loadedLayers)
-        setMainCode(mainExpression || '')
-        setSelectedLayerId('core')
-
-        // Extract and store project name (remove .layer extension)
-        const projectNameWithoutExt = file.name.replace(/\.layer$/, '')
-        setProjectName(projectNameWithoutExt)
-
-        // Update browser tab title
-        document.title = `${projectNameWithoutExt} - Layer Visual Editor`
-
-        const enabledCount = loadedLayers.filter(l => l.enabled).length
-        setOutput(`Loaded ${file.name}: ${enabledCount}/${loadedLayers.length} layers enabled`)
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-        setOutput(`Error loading file: ${errorMessage}`)
-      }
-    }
-    reader.readAsText(file)
-
-    // Reset input so the same file can be loaded again
-    event.target.value = ''
-  }, [])
+  const outputConsole = (maximize?: () => void) => (
+    <OutputConsole
+      output={output}
+      describeLocation={issue => describeLocation(issue, layers)}
+      onIssueClick={handleIssueClick}
+      onMaximize={maximize}
+      onExecute={handleInteractiveExecute}
+    />
+  )
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* App Bar */}
       <AppBar position="static" elevation={1}>
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            {projectName ? `${projectName} - Layer Visual Editor` : 'Layer Visual Editor'}
+        <Toolbar variant="dense" sx={{ gap: 0.5 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, mr: 1 }}>
+            Layer
           </Typography>
-          <Tooltip title="Execute Code">
-            <IconButton
-              color="inherit"
-              onClick={handleExecute}
-              disabled={isExecuting}
+          <Typography variant="body2" sx={{ opacity: 0.8, flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {projectName || 'untitled'}
+          </Typography>
+
+          <Tooltip title="Run (⌘/Ctrl + Enter)">
+            <span>
+              <Button
+                variant="contained"
+                color="success"
+                size="small"
+                startIcon={<PlayArrowIcon />}
+                onClick={handleRun}
+                disabled={output.status === 'running'}
+                sx={{ mr: 1 }}
+              >
+                Run
+              </Button>
+            </span>
+          </Tooltip>
+
+          <Tooltip title="Blend mode: how functions defined in several layers combine">
+            <Select
+              size="small"
+              value={blendMode}
+              onChange={e => setBlendMode(e.target.value as BlendMode)}
+              renderValue={v => `blend: ${v}`}
+              sx={{ color: 'inherit', fontSize: '0.8rem', height: 30, mr: 1, '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.4)' }, '.MuiSvgIcon-root': { color: 'inherit' } }}
             >
-              <PlayArrowIcon />
+              {BLEND_MODES.map(m => (
+                <MenuItem key={m.value} value={m.value}>
+                  <ListItemText primary={m.label} secondary={m.help} />
+                </MenuItem>
+              ))}
+            </Select>
+          </Tooltip>
+
+          <Tooltip title="Examples">
+            <IconButton color="inherit" onClick={e => setExamplesAnchor(e.currentTarget)}>
+              <MenuBookIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Open Project">
-            <IconButton color="inherit" onClick={handleLoad}>
+          <Tooltip title="New project">
+            <IconButton color="inherit" onClick={handleNew}>
+              <NoteAddIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Open .layer file">
+            <IconButton color="inherit" onClick={() => fileInputRef.current?.click()}>
               <FolderOpenIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Save Project">
+          <Tooltip title="Save as .layer file">
             <IconButton color="inherit" onClick={handleSave}>
               <SaveIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Toggle Flow Diagram">
+          <Tooltip title="Who answers each call?">
             <IconButton
               color="inherit"
-              onClick={() => setShowFlowDiagram(!showFlowDiagram)}
-              sx={{
-                bgcolor: showFlowDiagram ? 'rgba(255,255,255,0.1)' : 'transparent',
-              }}
+              onClick={() => setShowResolution(v => !v)}
+              sx={{ bgcolor: showResolution ? 'rgba(255,255,255,0.15)' : 'transparent' }}
             >
               <AccountTreeIcon />
             </IconButton>
           </Tooltip>
           <Tooltip title="Help">
-            <IconButton color="inherit">
+            <IconButton color="inherit" onClick={() => setHelpOpen(true)}>
               <HelpOutlineIcon />
             </IconButton>
           </Tooltip>
         </Toolbar>
       </AppBar>
 
-      {/* Hidden file input for loading .layer files */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        accept=".layer"
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
+      <Menu anchorEl={examplesAnchor} open={!!examplesAnchor} onClose={() => setExamplesAnchor(null)} PaperProps={{ sx: { maxHeight: '70vh', width: 380 } }}>
+        <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 0.5, display: 'block' }}>
+          Opening an example replaces the current project.
+        </Typography>
+        <Divider />
+        {EXAMPLES.map(ex => (
+          <MenuItem
+            key={ex.id}
+            onClick={() => {
+              setExamplesAnchor(null)
+              void loadSource(ex.source, ex.id)
+            }}
+          >
+            <ListItemText primary={ex.title} secondary={ex.description} secondaryTypographyProps={{ noWrap: true }} />
+          </MenuItem>
+        ))}
+      </Menu>
 
-      {/* Main Content */}
+      <input type="file" ref={fileInputRef} accept=".layer" style={{ display: 'none' }} onChange={handleFileChange} />
+
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Layer Stack - Left Panel */}
-        <Box sx={{ width: 220, borderRight: 1, borderColor: 'divider', overflow: 'auto' }}>
+        <Box sx={{ width: 240, flexShrink: 0, borderRight: 1, borderColor: 'divider', overflow: 'auto', bgcolor: 'background.paper' }}>
           <LayerStack
             layers={layers}
             selectedLayerId={selectedLayerId}
+            errorCounts={errorCounts}
             onLayerSelect={setSelectedLayerId}
-            onLayerReorder={handleLayerReorder}
-            onLayerToggle={handleLayerToggle}
-            onLockToggle={handleLockToggle}
-            onAddLayer={handleAddLayer}
+            onLayerReorder={next => setLayers(normalizeOrder(next))}
+            onLayerToggle={id => updateLayer(id, l => ({ enabled: !l.enabled }))}
+            onLockToggle={id => id !== 'core' && updateLayer(id, l => ({ locked: !l.locked }))}
+            onPurityToggle={id => updateLayer(id, l => ({ impure: l.impure ? undefined : true }))}
+            onDeleteLayer={id => {
+              const layer = layers.find(l => l.id === id)
+              if (!layer || !window.confirm(`Delete layer "${layer.name}" and its code?`)) return
+              setLayers(prev => prev.filter(l => l.id !== id))
+              if (selectedLayerId === id) setSelectedLayerId('core')
+            }}
+            onAddLayer={data => {
+              const layer: Layer = { ...data, id: `custom_${data.name}_${Date.now()}` }
+              setLayers(prev => [layer, ...prev])
+              setSelectedLayerId(layer.id)
+            }}
           />
         </Box>
 
-        {/* Code Editor and Output - Center Panel with Resizable Splitter */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <PanelGroup direction="vertical">
-            {/* Code Editor Panel */}
             <Panel defaultSize={60} minSize={20}>
-              <Box sx={{ height: '100%', overflow: 'hidden' }}>
-                <CodeEditor
-                  code={selectedLayer ? selectedLayer.code : mainCode}
-                  layerName={selectedLayer ? selectedLayer.name : 'main'}
-                  onChange={handleCodeChange}
-                />
-              </Box>
-            </Panel>
-
-            {/* Resize Handle */}
-            <PanelResizeHandle>
-              <Box
-                sx={{
-                  height: '4px',
-                  backgroundColor: 'divider',
-                  cursor: 'row-resize',
-                  '&:hover': {
-                    backgroundColor: 'primary.main',
-                  },
-                  transition: 'background-color 0.2s'
-                }}
+              <CodeEditor
+                bufferId={bufferId}
+                code={selectedLayer ? selectedLayer.code : mainCode}
+                title={editorTitle}
+                color={selectedLayer ? selectedLayer.color : '#455a64'}
+                badge={editorBadge}
+                issues={bufferIssues}
+                onChange={handleCodeChange}
+                onRun={handleRun}
+                reveal={reveal}
               />
-            </PanelResizeHandle>
-
-            {/* Output Console Panel */}
-            <Panel defaultSize={40} minSize={15}>
-              <Box sx={{ height: '100%', borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
-                <OutputConsole
-                  output={output}
-                  onMaximize={() => setConsoleMaximized(true)}
-                  onExecute={handleInteractiveExecute}
-                />
-              </Box>
             </Panel>
+            <PanelResizeHandle>
+              <Box sx={{ height: '4px', bgcolor: 'divider', cursor: 'row-resize', '&:hover': { bgcolor: 'primary.main' } }} />
+            </PanelResizeHandle>
+            <Panel defaultSize={40} minSize={15}>{outputConsole(() => setConsoleMaximized(true))}</Panel>
           </PanelGroup>
         </Box>
 
-        {/* Flow Diagram - Right Panel (Collapsible) */}
-        {showFlowDiagram && (
-          <Box sx={{ width: 280, borderLeft: 1, borderColor: 'divider', overflow: 'auto' }}>
-            <FlowDiagram layers={layers} />
+        {showResolution && (
+          <Box sx={{ width: 300, flexShrink: 0, borderLeft: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+            <ResolutionPanel description={description} layers={layers} blendMode={blendMode} />
           </Box>
         )}
       </Box>
 
-      {/* Maximized Console Dialog */}
-      <Dialog
-        open={consoleMaximized}
-        onClose={() => setConsoleMaximized(false)}
-        maxWidth="lg"
-        fullWidth
-        PaperProps={{
-          sx: { height: '90vh' }
-        }}
-      >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          Output Console
+      <Dialog open={consoleMaximized} onClose={() => setConsoleMaximized(false)} maxWidth="lg" fullWidth PaperProps={{ sx: { height: '90vh' } }}>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1 }}>
+          Output
           <IconButton onClick={() => setConsoleMaximized(false)} size="small">
             <CloseFullscreenIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ p: 0 }}>
-          <OutputConsole output={output} onExecute={handleInteractiveExecute} />
+        <DialogContent sx={{ p: 0, display: 'flex' }}>
+          <Box sx={{ flex: 1 }}>{outputConsole()}</Box>
         </DialogContent>
       </Dialog>
+
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </Box>
   )
 }
