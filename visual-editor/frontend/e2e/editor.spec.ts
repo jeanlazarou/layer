@@ -167,7 +167,7 @@ test('toggling a layer re-renders a running app and keeps its state', async ({ p
 test('the fallback example loads its blend mode and impure layer, and runs', async ({ page }) => {
   await openEditor(page)
   await openExample(page, /Blend mode: fallback/)
-  await expect(page.getByRole('combobox')).toHaveText('blend: fallback')
+  await expect(page.getByRole('combobox', { name: 'Blend mode', exact: true })).toHaveText('blend: fallback')
   await expect(layerCard(page, 'cache')).toContainText('impure')
 
   await run(page)
@@ -251,4 +251,34 @@ test('the help dialog opens', async ({ page }) => {
   await openEditor(page)
   await page.getByRole('button', { name: 'Help' }).click()
   await expect(page.getByRole('dialog')).toContainText('Layer in two minutes')
+})
+
+// MUI keeps a hover tooltip open when its control opens a menu; both appear
+// below the control, so the tooltip used to cover the first menu item.
+test('toolbar tooltips get out of the way when their menu opens', async ({ page }) => {
+  await openEditor(page)
+
+  const tooltip = (text: string) => page.getByRole('tooltip').filter({ hasText: text })
+
+  const blend = page.getByRole('combobox', { name: 'Blend mode', exact: true })
+  await blend.hover()
+  await expect(tooltip('Blend mode')).toBeVisible()
+  await blend.click()
+  // Hovering the menu items used to bubble (through React's portal) to the
+  // tooltip and reopen it on top of the first item.
+  await page.getByRole('option', { name: /Override/ }).hover()
+  await page.getByRole('option', { name: /Chain/ }).hover()
+  await expect(tooltip('Blend mode')).toBeHidden()
+  await page.getByRole('option', { name: /Chain/ }).click()
+  await expect(blend).toHaveText('blend: chain')
+  // …and the tooltip doesn't reappear by itself once the menu has closed.
+  await page.waitForTimeout(300)
+  await expect(tooltip('Blend mode')).toBeHidden()
+
+  const examples = page.getByRole('button', { name: 'Examples' })
+  await examples.hover()
+  await expect(tooltip('Examples')).toBeVisible()
+  await examples.click()
+  await expect(page.getByText('Opening an example replaces the current project.')).toBeVisible()
+  await expect(tooltip('Examples')).toBeHidden()
 })

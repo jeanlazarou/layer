@@ -31,6 +31,7 @@ import CodeEditor from './components/CodeEditor'
 import OutputConsole, { IDLE_OUTPUT, type OutputState } from './components/OutputConsole'
 import ResolutionPanel from './components/ResolutionPanel'
 import HelpDialog from './components/HelpDialog'
+import MenuTooltip from './components/MenuTooltip'
 import { describeProgram, runProgram, splitLayerFile } from './wasm/layerWasm'
 import { buildProgram, describeLocation, locateIssue, normalizeOrder, projectFromSplit, serializeProject, type Program } from './program'
 import { loadWorkspace, saveWorkspace } from './storage'
@@ -66,6 +67,7 @@ function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [consoleMaximized, setConsoleMaximized] = useState(false)
   const [examplesAnchor, setExamplesAnchor] = useState<HTMLElement | null>(null)
+  const [blendMenuOpen, setBlendMenuOpen] = useState(false)
   const [reveal, setReveal] = useState<{ line: number; column: number; nonce: number }>()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const hasRun = useRef(false)
@@ -328,9 +330,13 @@ function App() {
             </span>
           </Tooltip>
 
-          <Tooltip title="Blend mode: how functions defined in several layers combine">
+          <MenuTooltip title="Blend mode: how functions defined in several layers combine" menuOpen={blendMenuOpen}>
             <Select
               size="small"
+              open={blendMenuOpen}
+              SelectDisplayProps={{ 'aria-label': 'Blend mode' } as React.HTMLAttributes<HTMLDivElement>}
+              onOpen={() => setBlendMenuOpen(true)}
+              onClose={() => setBlendMenuOpen(false)}
               value={blend.mode}
               onChange={e => setBlend(prev => ({ ...prev, mode: e.target.value as BlendMode }))}
               renderValue={v => {
@@ -345,13 +351,13 @@ function App() {
                 </MenuItem>
               ))}
             </Select>
-          </Tooltip>
+          </MenuTooltip>
 
-          <Tooltip title="Examples">
-            <IconButton color="inherit" onClick={e => setExamplesAnchor(e.currentTarget)}>
+          <MenuTooltip title="Examples" menuOpen={!!examplesAnchor}>
+            <IconButton color="inherit" aria-label="Examples" onClick={e => setExamplesAnchor(e.currentTarget)}>
               <MenuBookIcon />
             </IconButton>
-          </Tooltip>
+          </MenuTooltip>
           <Tooltip title="New project">
             <IconButton color="inherit" onClick={handleNew}>
               <NoteAddIcon />
