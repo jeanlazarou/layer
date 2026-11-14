@@ -110,6 +110,12 @@ walker in `check.go` (or names will be reported as undefined or skipped), and th
 purity), add a color in `visual-editor/frontend/src/program.ts` (`LAYER_COLORS`) and the name to
 `BUILTIN_LAYERS` in `src/types/index.ts`.
 
+**Blend-mode animations** (`docs/images/blend/*.svg`, shown in README, LANGUAGE_SPEC and the editor's Help) are
+generated: edit `docs/images/blend/generate.mjs` (scenarios, timings, layout) and run
+`node docs/images/blend/generate.mjs`; CI fails if the committed SVGs differ from its output. They are pure
+CSS-keyframe SVGs (they animate inside `<img>`, including on GitHub) and show their final frame under
+`prefers-reduced-motion`.
+
 **Examples and docs are tested**: every `examples/*.layer` must run (a `# Result: ...` comment is compared
 with the output; an app's `# Send: <msg>` lines are sent in order and the final model is compared with
 `# Model: ...`), and every ```` ```layer ```` block in README.md that starts with `@layers` must run

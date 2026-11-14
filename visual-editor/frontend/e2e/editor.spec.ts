@@ -247,14 +247,19 @@ test('the workspace survives a reload', async ({ page }) => {
   await expect(layerCard(page, 'ui')).toBeVisible()
 })
 
-test('the help dialog opens', async ({ page }) => {
+test('the help dialog opens and animates the blend modes', async ({ page }) => {
   await openEditor(page)
   await page.getByRole('button', { name: 'Help' }).click()
-  await expect(page.getByRole('dialog')).toContainText('Layer in two minutes')
-})
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Layer in two minutes')
 
-// MUI keeps a hover tooltip open when its control opens a menu; both appear
-// below the control, so the tooltip used to cover the first menu item.
+  for (const mode of ['chain', 'collect', 'fallback', 'override']) {
+    await dialog.getByRole('button', { name: mode, exact: true }).click()
+    const img = dialog.getByRole('img', { name: `Animation of the ${mode} blend mode` })
+    await expect(img).toBeVisible()
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(700)
+  }
+})
 test('toolbar tooltips get out of the way when their menu opens', async ({ page }) => {
   await openEditor(page)
 

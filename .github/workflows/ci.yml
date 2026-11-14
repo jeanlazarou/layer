@@ -70,6 +70,12 @@ jobs:
           cache: pnpm
           cache-dependency-path: visual-editor/frontend/pnpm-lock.yaml
 
+      - name: Blend-mode animations match their generator
+        working-directory: .
+        run: |
+          node docs/images/blend/generate.mjs
+          git diff --exit-code -- docs/images/blend || (echo "Run: node docs/images/blend/generate.mjs" && exit 1)
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint

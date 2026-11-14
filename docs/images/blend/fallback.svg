@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 336" width="700" height="336" role="img" aria-labelledby="t d">
+<title id="t">Layer blend mode: fallback</title>
+<desc id="d">memory is tried first and returns None (a miss), so disk is tried next and returns Some(42), which is the result. core is never called.</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#24292f}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.title{font-size:20px;font-weight:700}
+.subtitle{font-size:13px;fill:#57606a}
+.directive{font-size:12px;fill:#8250df}
+.label{font-size:10px;font-weight:600;letter-spacing:.08em;fill:#8c959f}
+.pill{font-size:12px}
+.name{font-size:13px;font-weight:600}
+.def{font-size:11.5px;fill:#57606a}
+.tag{font-size:11px;font-weight:600}
+.result{font-size:12px;fill:#0550ae}
+.caption{font-size:13.5px}
+.note{font-size:11px;fill:#8c959f}
+@keyframes fallback0{0%{opacity:0}13.00%{opacity:0}15.50%{opacity:1}21.50%{opacity:1}24.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback1{0%{opacity:0}22.00%{opacity:0}24.50%{opacity:1}91.50%{opacity:1}94.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback2{0%{opacity:0}33.00%{opacity:0}35.50%{opacity:1}40.50%{opacity:1}43.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback3{0%{opacity:0}41.00%{opacity:0}43.50%{opacity:1}91.50%{opacity:1}94.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback4{0%{opacity:0}49.00%{opacity:0}51.50%{opacity:1}91.50%{opacity:1}94.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback5{0%{opacity:0}46.00%{opacity:0}48.50%{opacity:1}91.50%{opacity:1}94.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback6{0%{opacity:0;transform:translate(194px,127px)}4.50%{opacity:0;transform:translate(194px,127px)}5.00%{opacity:1;transform:translate(194px,127px)}13.00%{opacity:1;transform:translate(238px,127px)}22.00%{opacity:1;transform:translate(502px,127px)}25.00%{opacity:1;transform:translate(502px,157px)}30.00%{opacity:1;transform:translate(238px,157px)}33.00%{opacity:1;transform:translate(238px,187px)}41.00%{opacity:1;transform:translate(502px,187px)}46.00%{opacity:1;transform:translate(528px,127px)}48.50%{opacity:0;transform:translate(528px,127px)}100%{opacity:0;transform:translate(528px,127px)}}
+@keyframes fallback7{0%{opacity:0}2.00%{opacity:0}4.50%{opacity:1}22.50%{opacity:1}25.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback8{0%{opacity:0}25.00%{opacity:0}27.50%{opacity:1}43.50%{opacity:1}46.00%{opacity:0}100%{opacity:0}}
+@keyframes fallback9{0%{opacity:0}46.00%{opacity:0}48.50%{opacity:1}91.50%{opacity:1}94.00%{opacity:0}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<rect x="0.5" y="0.5" width="699" height="335" rx="12" fill="#ffffff" stroke="#d0d7de"/>
+<text x="24" y="38" class="title">fallback</text>
+<text x="24" y="60" class="subtitle">Try the layers from the top; the first result that is not None wins.</text>
+<text x="24" y="86" class="mono directive">@layers [core, data, disk, memory] blend: fallback</text>
+<text x="24" y="108" class="label">CALL</text>
+<rect x="24" y="114" width="170" height="26" rx="13" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="109" y="131" text-anchor="middle" class="mono pill">fetch(&quot;user:7&quot;)</text>
+<text x="528" y="108" class="label">RESULT</text>
+<rect x="230" y="104" width="280" height="46" rx="8" fill="#fff" stroke="#d0d7de"/>
+<rect x="230" y="104" width="280" height="46" rx="8" fill="#00acc1" fill-opacity="0.12" stroke="#00acc1" stroke-width="2" opacity="0" style="animation:fallback0 10s linear infinite" class="a"/>
+<rect x="230" y="104" width="6" height="46" rx="3" fill="#00acc1"/>
+<text x="246" y="122" class="name">memory</text>
+<text x="246" y="140" class="mono def">fn fetch(k) = memo_get(k)</text>
+<g opacity="1" style="animation:fallback1 10s linear infinite" class="a"><rect x="458" y="110" width="42" height="17" rx="8.5" fill="#fff1e5"/><text x="479" y="122.5" text-anchor="middle" class="tag" fill="#953800">None</text></g>
+<rect x="230" y="164" width="280" height="46" rx="8" fill="#fff" stroke="#d0d7de"/>
+<rect x="230" y="164" width="280" height="46" rx="8" fill="#ff9800" fill-opacity="0.12" stroke="#ff9800" stroke-width="2" opacity="0" style="animation:fallback2 10s linear infinite" class="a"/>
+<rect x="230" y="164" width="6" height="46" rx="3" fill="#ff9800"/>
+<text x="246" y="182" class="name">disk</text>
+<text x="246" y="200" class="mono def">fn fetch(k) = disk_get(k)</text>
+<g opacity="1" style="animation:fallback3 10s linear infinite" class="a"><rect x="433" y="170" width="67" height="17" rx="8.5" fill="#dafbe1"/><text x="466.5" y="182.5" text-anchor="middle" class="tag" fill="#116329">Some(42)</text></g>
+<rect x="230" y="224" width="280" height="46" rx="8" fill="#fff" stroke="#d0d7de"/>
+<rect x="230" y="224" width="6" height="46" rx="3" fill="#4caf50"/>
+<text x="246" y="242" class="name">core</text>
+<text x="246" y="260" class="mono def">fn fetch(k) = compute(k)</text>
+<g opacity="1" style="animation:fallback4 10s linear infinite" class="a"><rect x="420" y="230" width="80" height="17" rx="8.5" fill="#eaeef2"/><text x="460" y="242.5" text-anchor="middle" class="tag" fill="#57606a">not called</text></g>
+<g opacity="1" style="animation:fallback5 10s linear infinite" class="a"><rect x="528" y="114" width="160" height="26" rx="13" fill="#ddf4ff" stroke="#0969da"/><text x="608" y="131" text-anchor="middle" class="mono result">Some(42)</text></g>
+<text x="230" y="290" class="note">data is in the stack for Some/None but does not define fetch, so it takes no part.</text>
+<g opacity="0" style="animation:fallback6 10s linear infinite" class="a"><circle r="11" fill="#0969da" fill-opacity="0.18"/><circle r="5.5" fill="#0969da"/></g>
+<text x="350" y="316" text-anchor="middle" class="caption" opacity="0" style="animation:fallback7 10s linear infinite">fallback tries the top layer first: memory misses and returns None…</text>
+<text x="350" y="316" text-anchor="middle" class="caption" opacity="0" style="animation:fallback8 10s linear infinite">…so the next layer down is tried: disk has the value.</text>
+<text x="350" y="316" text-anchor="middle" class="caption" opacity="1" style="animation:fallback9 10s linear infinite">The first result that is not None wins — core is never called.</text>
+</svg>

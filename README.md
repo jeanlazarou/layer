@@ -113,6 +113,16 @@ Layer borrows from context-oriented programming, aspects, CLOS method combinatio
    "who answers each call?" view, and live diagnostics. Inside the language, `@which fib`, `@inspect debug`
    and `@diff core debug` query the stack.
 
+<details>
+<summary><strong>The four blend modes, animated</strong></summary>
+
+![override: a call to greet is answered by the top layer; the layers below are shadowed](docs/images/blend/override.svg)
+![chain: total([10, 20]) runs core, then discount, then tax, each on the previous result](docs/images/blend/chain.svg)
+![collect: notify("login") runs every layer that defines it and returns the list of results](docs/images/blend/collect.svg)
+![fallback: fetch tries memory (None), then disk (Some(42)), which wins; core is never called](docs/images/blend/fallback.svg)
+
+</details>
+
 ## The language in one screen
 
 ```layer

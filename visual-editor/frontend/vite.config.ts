@@ -10,8 +10,9 @@ export default defineConfig({
   server: {
     open: true,
     fs: {
-      // The Examples menu bundles ../../examples/*.layer from the repo root.
-      allow: ['.', '../../examples'],
+      // The Examples menu bundles ../../examples/*.layer, and the Help dialog
+      // shows the blend-mode animations from ../../docs/images/blend.
+      allow: ['.', '../../examples', '../../docs/images'],
     },
   },
   build: {
