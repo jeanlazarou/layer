@@ -41,8 +41,8 @@ The recursive call inside `core.fib` is unqualified, so it goes back through the
 layer sees **every** level of the recursion (open recursion, like `this.method()`). Remove `debug` from
 `@layers` and the same core code runs silently. `core.fib(n)` is the explicit "call the layer below" escape hatch.
 
-![The visual editor: the layer stack on the left, the debug layer wrapping core.factorial, and the
-"who answers each call?" view on the right](docs/images/editor.png)
+![The visual editor running the counter example: the layer stack on the left, the debug layer wrapping
+update, the live app with its model and message history, and the "who answers each call?" view](docs/images/editor.png)
 
 ## Try it
 
@@ -137,14 +137,43 @@ let add10 = λ(x) -> x + 10 in
 # → [36, "Ada is an adult", [1, 2]]
 ```
 
-Functions, lambdas, `let … in`, `if … then … else`, pattern matching (lists, records, guards), string
-interpolation in double-quoted strings, and partial application with `?`. Everything is an expression; a
+Functions, lambdas, `let … in`, `if … then … else`, pattern matching (lists, records, guards), records with
+field access (`p.name`) and update (`{p | age: 37}`), string interpolation in double-quoted strings, and
+partial application with `?`. Everything is an expression; a
 function body is one expression (sequence steps with `let _ = step in next`). The complete reference is
 [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md), and [docs/TUTORIAL.md](docs/TUTORIAL.md) walks through it.
 
-The `ui` layer returns declarative components (`view`, `text`, `button`, `input`, `row`, `column`) that the
-editor renders as live, interactive widgets. A button's `onclick` is a Layer expression evaluated on top of
-the current stack, with input values bound by name.
+## Interactive apps
+
+Interactive programs follow the model / update / view architecture. Buttons and inputs send **messages**
+(plain data); `update` turns a message and the current model into the next model; `view` shows it:
+
+```layer
+@layers [core, ui]
+
+@layer core {
+  fn update(msg, model) =
+    match msg with
+    | "inc"   -> {model | count: model.count + 1}
+    | "reset" -> {model | count: 0}
+}
+
+@layer ui {
+  fn page(model) = view({title: "Counter", children: [
+    text("Count: {model.count}"),
+    row([button({label: "+", on_click: "inc"}), button({label: "Reset", on_click: "reset"})])
+  ]})
+}
+
+app({init: {count: 0}, update: update, view: page})
+```
+
+The editor runs it live, with the model and the message history beside it (click a message to go back to
+that state). Toggling a layer re-renders the running app and keeps its model, so layers become switches on
+a live app: a debug layer that wraps `update` logs every message, a persistence layer saves the model, and
+with `blend: {page: collect}` each layer adds its own panel — see `examples/app_counter.layer` and
+`examples/app_todo.layer`. On the command line, `layer run --send '"inc"' counter.layer` sends messages and
+prints the resulting model and view.
 
 ## Status
 
@@ -157,13 +186,15 @@ This is a research language, not a production tool. Implemented and covered by t
 - Static checks for undefined names and unknown/inactive layers, reported with positions
 - Runtime errors with positions and a Layer call trace; a recursion limit instead of a crash
 - Built-in `core`, `ui`, `debug` and `data` layers (the data layer uses an Option type)
+- Interactive apps (model / update / view) with plain-data messages, in the editor and via `layer run --send`
 
 Not implemented: type inference (specified, not built), modules, a REPL.
 
 ## Repository
 
 ```
-examples/           runnable .layer programs (all run in CI; "# Result:" comments are checked)
+examples/           runnable .layer programs (all run in CI; "# Result:" and, for apps, "# Send:"/"# Model:"
+                    comments are checked)
 layer-go/           the interpreter
   cmd/layer/        command-line runner
   cmd/wasm/         WebAssembly bridge used by the editor

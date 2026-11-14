@@ -210,6 +210,22 @@ Rules:
 - Single-quoted strings never interpolate: `'{n}'` is the three characters `{n}`.
 - String *patterns* cannot contain interpolation.
 
+### Records: field access and update
+
+```layer
+let p = {name: "Ada", box: {w: 2, h: 3}} in
+[p.name, p.box.w * p.box.h]      # → ["Ada", 6]
+
+let m = {count: 1, step: 2} in
+{m | count: m.count + m.step}    # → {count: 3, step: 2} — a new record; m is unchanged
+```
+
+- `record.field` reads a field; a missing field is a runtime error that lists the fields the record has.
+- `x.name` means a **field** when `x` is a local value (a parameter, `let`, or pattern binding) and a
+  **layer** otherwise (`core.factorial`). A local name shadows a layer of the same name.
+- `{record | field: value, ...}` (Elm syntax) returns a copy with the listed fields replaced. Every listed
+  field must already exist — a misspelled field is an error instead of a silently added one.
+
 ### Conditionals
 
 `if <cond> then <a> else <b>` is an expression. `if`, `then` and `else` are soft keywords. Only the taken
@@ -469,11 +485,11 @@ After defining layers, you write a **main expression** - code that executes outs
 }
 
 @layer ui {
-  fn app() = view({...})
+  fn page() = view({...})
 }
 
 # Main expression - executes when program runs
-render(app())
+render(page())
 ```
 
 **Key points about the main expression**:
@@ -643,7 +659,7 @@ Layers can be selectively enabled for different scenarios:
     view({
       children: [
         text({content: "User List (Beta)"}),
-        button({label: "Export", onclick: "export_users()"})
+        button({label: "Export", on_click: "export_users"})
       ]
     })
 }
@@ -1454,13 +1470,13 @@ The built-in layers are **always available** once enabled in `@layers [...]`. Yo
     result
 }
 
-# ✅ UI is built-in impure (renders to screen)
-@layer<ui> ui {
-  fn app() = view({  # ✅ OK - ui layer is impure
+# ✅ UI constructors only build values, so any layer may call them
+@layer ui {
+  fn page(model) = view({
     title: "Factorial Calculator",
     children: [
-      input({name: "n", type: "number"}),
-      button({label: "Calculate", onclick: "factorial(n)"})
+      input({name: "n", type: "number", value: model.n, on_input: "set_n"}),
+      text("{model.n}! = {factorial(model.n)}")
     ]
   })
 }
@@ -1615,11 +1631,12 @@ When you call a function, the compiler:
     data.write_json("orders/{order.id}.json", {...order, total: total})
 }
 
-@layer<ui> ui {
+@layer ui {
+  # The button sends a message; the app's update (in an impure layer) saves the order.
   fn checkout_button(order) =
     button({
       label: "Checkout ${core.calculate_total(order.items)}",
-      onclick: "persistence.save_order(order)"
+      on_click: {checkout: order.id}
     })
 }
 ```
@@ -1860,453 +1877,138 @@ fn map(f, list) =
 
 ## UI Layer
 
-The UI layer provides declarative user interfaces that render as **interactive React components** in the visual editor. UI components are pure data structures that describe the interface - the rendering happens at the edges (browser).
+The UI layer builds declarative user interfaces. Components are plain values describing the interface; the
+**runtime** (the visual editor) renders them as live Material UI widgets and turns user actions into
+**messages**. Interactive programs are **apps** in the model / update / view style.
 
-### Purity Model: Pure Functions, Impure Intent
+### Purity: building UI is pure
 
-**Important**: The UI layer is marked `@layer<ui>` (impure), but the UI functions themselves (`view`, `text`, `button`, etc.) are **pure functions** that return data structures.
+The component constructors (`view`, `text`, `button`, `input`, `container`, `row`, `column`, `render`, `app`)
+only build values, so they are **pure** — pure layers (`core`, custom layers) may call them. Rendering and
+handling events are effects, and they belong to the runtime, outside Layer. The `ui` layer itself is still
+impure: code written *in* it may call effects such as `log`.
 
 ```layer
-@layer<ui> ui {
-  fn my_ui() = view({...})  # Pure function - returns data!
+@layers [core, ui, panels]
+
+@layer panels {                       # a pure custom layer
+  fn card(title, body) = view({title: title, children: [text(body)]})
 }
 
-# Calling my_ui() always returns the same data structure
-let ui1 = my_ui() in
-let ui2 = my_ui() in
-ui1 == ui2  # true - same output for same input
+card("Hello", "built in a pure layer")
 ```
 
-**Why mark it impure then?**
+### Components
 
-The UI layer is marked impure because:
+| Constructor | Props | Notes |
+|---|---|---|
+| `view({title, children})` | `title`, `children` (list or one component) | A titled panel |
+| `text("…")` / `text({content})` | `content` | Any value is shown with its display form |
+| `button({label, on_click})` | `label`, `on_click` (a message) | Disabled when there is no app to receive the message |
+| `input({…})` | `name`, `value`, `type`, `label`, `placeholder`, `width`, `on_input` (a string tag) | `type: "number"` sends numbers |
+| `row([…])`, `column([…])` | children | Horizontal / vertical layout |
+| `container(layout, [...])` | `"horizontal"` or `"vertical"` | General form of row/column |
+| `render(component)` | | The component as XML text |
+| `app({init, update, view})` | | An interactive app — see below |
 
-1. **Intent**: UI functions are designed to cause visual effects (rendering to screen)
-2. **Boundary**: The UI layer represents where pure computation meets impure effects
-3. **onclick handlers**: Can execute code from any layer, including impure operations
-4. **Conceptual honesty**: Calling a UI function is intended to show something to the user (an effect)
+A main expression that returns a component (or `render(...)` of one) is shown as a **static** UI.
 
-**The side effect happens outside Layer**:
-
-```
-Layer Code                     Visual Editor (JavaScript)
-──────────────────            ─────────────────────────────
-calculator()          →       Returns pure data structure
-                      →       ❌ SIDE EFFECT: Renders to DOM
-                      →       ❌ SIDE EFFECT: Handles button clicks
-                      →       ❌ SIDE EFFECT: Updates screen
-```
-
-The UI layer functions are **pure** (referentially transparent), but they describe **effects** that happen at the system boundary. This is similar to Haskell's IO monad - the description is pure, the execution is impure.
-
-**In the purity system**: Pure layers cannot call UI layer functions, even though the UI functions themselves are pure, because they represent the intent to perform effects.
-
-### Core Concept
-
-UI in Layer is a **side effect** - it's isolated in the UI layer while business logic remains pure in the core layer:
+### Interactive apps
 
 ```layer
 @layers [core, ui]
 
 @layer core {
-  # Pure business logic
-  fn calculate(x, y, op) =
-    match op with
-    | "+" -> x + y
-    | "-" -> x - y
-    | "*" -> x * y
-    | "/" -> x / y
-    | _ -> 0
+  fn init() = {count: 0, step: 1}
+
+  fn update(msg, model) =
+    match msg with
+    | "inc"     -> {model | count: model.count + model.step}
+    | "reset"   -> {model | count: 0}
+    | {step: s} -> {model | step: s}
 }
 
 @layer ui {
-  # UI effect - declarative interface
-  fn calculator() = view({
-    title: "Calculator",
+  fn page(model) = view({
+    title: "Counter",
     children: [
-      input({name: "x", type: "number", placeholder: "First number"}),
-      input({name: "y", type: "number", placeholder: "Second number"}),
-      button({label: "+", onclick: "calculate(to_float(x), to_float(y), '+')"}),
-      button({label: "-", onclick: "calculate(to_float(x), to_float(y), '-')"})
-    ]
-  })
-}
-```
-
-### Available Components
-
-#### `view(props)`
-Container component for the entire UI.
-
-**Properties**:
-- `title: String` - Title displayed at top
-- `children: List` - Child components
-
-**Example**:
-```layer
-view({
-  title: "My App",
-  children: [
-    text({content: "Welcome!"}),
-    button({label: "Start"})
-  ]
-})
-```
-
-#### `text(props)`
-Display static or dynamic text.
-
-**Properties**:
-- `content: String` - Text to display
-- `style: String` - Optional: "h1", "h2", "h3", "body", "caption"
-
-**Example**:
-```layer
-text({content: "Hello, World!"})
-text({content: "Result: {result}", style: "h2"})
-```
-
-#### `button(props)`
-Interactive button that executes Layer code on click.
-
-**Properties**:
-- `label: String` - Button text
-- `onclick: String` - Layer expression to execute (as string)
-
-**Example**:
-```layer
-button({label: "Calculate", onclick: "factorial(to_float(n))"})
-button({label: "Reset", onclick: "clear_inputs()"})
-```
-
-**Important**: The `onclick` expression is evaluated with access to all input field values by name.
-
-#### `input(props)`
-Text input field for user data.
-
-**Properties**:
-- `name: String` - **Required** - Variable name for accessing value
-- `placeholder: String` - Placeholder text
-- `type: String` - Input type (default: "text")
-- `value: String` - Initial value
-- `width: String` - CSS width (default: "200px")
-
-**Supported types**:
-- `"text"` - Default text input
-- `"number"` - Numeric input with spinner controls
-- `"password"` - Hidden password input
-- `"email"` - Email input with validation
-- `"date"` - Date picker
-- `"time"` - Time picker
-- `"color"` - Color picker
-
-**Example**:
-```layer
-input({name: "username", placeholder: "Enter username"})
-input({name: "age", type: "number", placeholder: "Your age"})
-input({name: "birthdate", type: "date"})
-```
-
-**Automatic Type Conversion**: When you specify `type: "number"`, the visual editor **automatically converts** the input value to a number when executing `onclick` handlers:
-
-```layer
-# With type="number" - automatic conversion!
-input({name: "n", type: "number", placeholder: "Enter number"})
-button({onclick: "factorial(n)"})  # 'n' is already a number!
-
-# With type="text" - remains a string
-input({name: "name", type: "text"})
-button({onclick: "greet(name)"})  # 'name' is a string
-```
-
-**Supported automatic conversions**:
-- `type: "number"` → Converts to float (e.g., `"42"` becomes `42.0`)
-- `type: "text"` → Remains string (default)
-- `type: "email"`, `type: "password"`, etc. → Remain strings
-
-**Benefits**:
-- ✅ No manual `to_float()` needed for numeric inputs
-- ✅ Better UX (number keyboard on mobile, spinners, validation)
-- ✅ Type-safe by default
-- ✅ Less verbose code
-
-#### `container(props)`
-Layout container for organizing child components.
-
-**Properties**:
-- `layout: String` - "horizontal" or "vertical" (default: "vertical")
-- `children: List` - Child components
-
-**Example**:
-```layer
-container({
-  layout: "horizontal",
-  children: [
-    button({label: "Yes"}),
-    button({label: "No"}),
-    button({label: "Cancel"})
-  ]
-})
-```
-
-#### `render(component)`
-Converts a UI component to its string representation (XML format).
-
-**Purpose**: This function is the **bridge between pure UI data and impure output**. It takes a UI component structure and converts it to a string that can be displayed or sent to the visual editor.
-
-**Parameters**:
-- `component` - A UI component (returned by `view`, `button`, `text`, etc.)
-
-**Returns**: String (XML representation of the component)
-
-**Example**:
-```layer
-@layer<ui> ui {
-  fn app() = view({
-    title: "My App",
-    children: [text({content: "Hello!"})]
-  })
-}
-
-# Main expression - this is where the impure effect happens!
-render(app())
-```
-
-**Purity Note**:
-- The `render()` function itself is **pure** (same input → same output)
-- BUT calling it at the **top level** (main expression) causes an **impure effect** (outputs to console/visual editor)
-- This is the **boundary** where pure data becomes impure I/O
-
-```layer
-# Pure - just returns a string
-let ui_string = render(app()) in ui_string
-
-# Impure - outputs to console/visual editor (main expression)
-render(app())
-```
-
-When `render()` is called as the **main expression** of a program, it outputs the UI string, which is a side effect. This is similar to Haskell's `main :: IO ()` - the entry point where pure code meets the impure world.
-
-### Input State Management
-
-When UI components render, all input fields are tracked in a state object. The `onclick` handler can access inputs by their `name`:
-
-```layer
-@layer ui {
-  fn app() = view({
-    children: [
-      input({name: "x", placeholder: "Enter X"}),
-      input({name: "y", placeholder: "Enter Y"}),
-      # onclick can access 'x' and 'y' by name
-      button({onclick: "to_float(x) + to_float(y)"})
-    ]
-  })
-}
-```
-
-**How it works**:
-1. Visual editor extracts all `input` components and their `name` properties
-2. Creates a state object: `{ x: "", y: "" }`
-3. Updates state when user types
-4. Evaluates the `onclick` expression on top of the current layer stack, with each input bound as a
-   top-level variable (`type: "number"` inputs as numbers, others as strings). Values are passed as data,
-   not spliced into source text.
-
-**Routing a result into an input**: by default a button's result is shown below the UI. Add
-`target: "<input name>"` to write it into that input instead — e.g. a calculator display:
-
-```layer
-input({name: "display", placeholder: "0"}),
-button({label: "7", onclick: "append_digit(display, '7')", target: "display"})
-```
-
-### Complete Example
-
-```layer
-@layers [core, ui]
-
-@layer core {
-  fn factorial(n) =
-    match n with
-    | 0 -> 1
-    | n -> n * factorial(n - 1)
-
-  fn is_valid_input(s) =
-    let num = to_float(s) in
-    num >= 0 && num <= 20
-}
-
-@layer ui {
-  fn app() = view({
-    title: "Factorial Calculator",
-    children: [
-      text({content: "Calculate factorial (0-20)", style: "h2"}),
-      input({
-        name: "n",
-        type: "number",
-        placeholder: "Enter a number"
-      }),
-      container({
-        layout: "horizontal",
-        children: [
-          button({
-            label: "Calculate",
-            onclick: "if is_valid_input(n) then factorial(to_float(n)) else 'Invalid input'"
-          }),
-          button({
-            label: "Clear",
-            onclick: "''"
-          })
-        ]
-      })
+      text("Count: {model.count}"),
+      row([button({label: "+", on_click: "inc"}), button({label: "Reset", on_click: "reset"})]),
+      input({label: "Step", type: "number", value: model.step, on_input: "step"})
     ]
   })
 }
 
-app()
+app({init: init(), update: update, view: page})
 ```
 
-### How UI Renders
+`app({init, update, view})` describes an app:
 
-In the **visual editor** (browser):
-1. Layer code returns a UI component structure
-2. Visual editor parses it into a tree
-3. Components render as **actual Material UI React components**:
-   - `view` → Material UI Box with styled border
-   - `text` → Typography component
-   - `button` → Button with click handler
-   - `input` → TextField with state binding
-   - `container` → Flexbox layout
+- `init` is the **initial model** — plain data (records, lists, strings, numbers, booleans).
+- `update(msg, model)` returns the next model for a message.
+- `view(model)` returns a component (or a list of components, shown as a column).
 
-This means the UI is **fully interactive** - buttons work, inputs capture data, and Layer expressions execute in real-time!
+The runtime starts from `init`, shows `view(model)`, and for every message sets
+`model = update(msg, model)` and shows the view again. The model never changes anywhere else.
 
-### UI as Pure Data
+**Messages are plain data.** A button's `on_click` is the message it sends — any plain value: `"inc"`,
+`{toggle: 3}`, `["move", 1, 2]`. An input's `on_input` is a string tag; typing sends `{tag: text}` (with a
+number for `type: "number"`). `update` usually dispatches with `match`, using string and record patterns.
+Functions are not messages: `button({on_click: λ(x) -> x})` is an error, and so is a model that contains a
+function. (Earlier versions used `onclick` code strings and `target`; both are now errors that explain the
+replacement.)
 
-Despite being interactive, UI components are **pure data structures**:
+**Don't name your view function `view`** — that is the panel constructor. `page` is a good name.
 
-```layer
-# This is just a value - no side effects!
-let my_ui = view({
-  children: [text({content: "Hello"})]
-}) in my_ui
+### Running apps
 
-# Can transform UI with pure functions
-fn add_border(component) = {
-  ...component,
-  style: "border: 1px solid black"
-}
+In the **visual editor**, running a program whose main expression is `app(...)` shows the live app with an
+inspector: the current model, and every message so far. Clicking a message goes back to the state after it
+(time travel); new messages continue from there. Running again — or toggling, reordering or re-blending a
+layer — re-renders the app with the new code **and keeps its model**; **Restart** starts again from `init`.
 
-# Can compose UIs
-fn wrap_with_title(title, content) =
-  view({
-    title: title,
-    children: content
-  })
+From the **command line**, `--send` drives an app with messages written as Layer expressions and prints the
+final model and view:
+
+```
+$ layer run --send '"inc"' --send '{step: 5}' --send '"inc"' counter.layer
+model: {count: 6, step: 5}
+<view title="Counter"> …
 ```
 
-The **effect** (rendering to screen) only happens when the visual editor receives the UI structure.
+Each event re-runs the program (load + main expression) with the previous model — no state is kept between
+events except the model, which is why it must be plain data. Keep the main expression to `app(...)`.
 
-### Best Practices
+### Layers and apps
 
-#### 1. Keep Business Logic in Core Layer
+Apps are ordinary functions on a layer stack, so layers add behaviour to an app without touching it:
 
 ```layer
-# ✅ GOOD - Pure logic in core
-@layer core {
-  fn validate_email(email) =
-    str_length(email) > 3 && contains(email, "@")
+@layer debug {                     # log every message — hide the layer and logging stops
+  fn update(msg, model) =
+    let next = core.update(msg, model) in
+    let _ = log("{msg} → {next}") in
+      next
 }
 
-@layer ui {
-  fn form() = view({
-    children: [
-      input({name: "email", type: "email"}),
-      button({onclick: "if validate_email(email) then 'Valid!' else 'Invalid!'"})
-    ]
-  })
-}
-
-# ❌ BAD - Logic mixed with UI
-@layer ui {
-  fn form() = view({
-    children: [
-      input({name: "email"}),
-      button({onclick: "if str_length(email) > 3 && contains(email, '@') then 'Valid!' else 'Invalid!'"})
-    ]
-  })
+@layer<impure> persist {           # restore the model at start, save it after every message
+  fn init() = data.unwrap(data.get("model"), core.init())
+  fn update(msg, model) =
+    let next = core.update(msg, model) in
+    let _ = data.set("model", next) in
+      next
 }
 ```
 
-#### 2. Use Type Attribute for Automatic Conversion
-
-```layer
-# ✅ GOOD - Automatic conversion with type="number"
-input({name: "age", type: "number"})
-button({onclick: "calculate_retirement(age)"})  # age is a number!
-
-# ⚠️ OK but manual - Works but verbose
-input({name: "age"})
-button({onclick: "calculate_retirement(to_float(age))"})
-
-# ❌ BAD - Missing type attribute AND conversion
-input({name: "age"})
-button({onclick: "calculate_retirement(age)"})  # age is a string - will fail!
-```
-
-#### 3. Use Type Attribute for Better UX
-
-```layer
-# ✅ GOOD - type helps user experience
-input({name: "count", type: "number", placeholder: "Quantity"})
-input({name: "birthdate", type: "date"})
-input({name: "email", type: "email"})
-
-# ❌ OK but not ideal - all text inputs
-input({name: "count", placeholder: "Quantity"})
-input({name: "birthdate", placeholder: "YYYY-MM-DD"})
-input({name: "email", placeholder: "your@email.com"})
-```
-
-#### 4. Compose UI Functions
-
-```layer
-@layer ui {
-  # Reusable components
-  fn labeled_input(label, name, type) =
-    container({
-      children: [
-        text({content: label}),
-        input({name: name, type: type})
-      ]
-    })
-
-  # Use them
-  fn form() = view({
-    children: [
-      labeled_input("Name:", "name", "text"),
-      labeled_input("Age:", "age", "number"),
-      labeled_input("Email:", "email", "email")
-    ]
-  })
-}
-```
+With `blend: {page: collect}`, every layer that defines `page` contributes a panel (top of the stack first).
+See `examples/app_counter.layer`, `examples/app_todo.layer`, and `examples/calculator.layer`.
 
 ### Limitations
 
-1. **No nested state** - Input names are flat (no `user.name`, just `name`)
-2. **Simple onclick** - Expression evaluated once per click (no reactivity)
-3. **No custom styling** - Limited to Material UI defaults
-4. **Browser only** - UI layer only works in visual editor, not CLI
-5. **Only `number` type converts** - Other types (`date`, `time`) remain strings
-
-### Future Enhancements
-
-Planned improvements:
-- **More type conversions** - Auto-convert dates, booleans, etc.
-- **Nested state** - Support `{user: {name: "Alice"}}`
-- **Reactive expressions** - Auto-update on input change
-- **Custom styles** - CSS-in-Layer
-- **More components** - Tables, charts, forms, etc.
+1. Models and messages must be plain data.
+2. Each message re-evaluates the whole program; this is fast for editor-sized programs, not for heavy work.
+3. Styling is limited to Material UI defaults.
+4. The browser's `data` layer storage lasts for the page session (it is not written to disk).
 
 ## Debug Layer
 

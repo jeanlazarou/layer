@@ -4,18 +4,18 @@
 // function takes source text and returns a JSON string, so the browser side
 // only has to JSON.parse it:
 //
-//	executeLayer(source, varsJSON?) → runner.Result
-//	describeLayer(source)          → runner.DescribeResult
-//	parseLayerFile(source)         → {success, errors, enabledLayers, declaredLayers, layers, purity, blendMode, mainExpression}
+//	executeLayer(source, appStateJSON?) → runner.Result
+//	describeLayer(source)               → runner.DescribeResult
+//	parseLayerFile(source)              → {success, errors, enabledLayers, declaredLayers, layers, purity, blendMode, blendModes, mainExpression}
 //
-// varsJSON is an optional JSON object of top-level variables (the current
-// values of UI inputs). Integral numbers become Layer integers.
+// appStateJSON drives an app (a program whose main expression is app(...)):
+// {"model": <model from a previous result>, "messages": [<message>, ...]}.
+// Without it, an app starts from its init.
 package main
 
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"syscall/js"
 
 	"github.com/jeanlazarou/layer/pkg/runner"
@@ -37,45 +37,30 @@ func errorJSON(msg string) string {
 	})
 }
 
-// decodeVars parses a JSON object of variables, mapping integral numbers to
-// int64 so `square(n)` on a typed-in "5" yields 25, not 25.0.
-func decodeVars(s string) (map[string]interface{}, error) {
-	if strings.TrimSpace(s) == "" {
-		return nil, nil
-	}
-	dec := json.NewDecoder(strings.NewReader(s))
-	dec.UseNumber()
-	var raw map[string]interface{}
-	if err := dec.Decode(&raw); err != nil {
-		return nil, err
-	}
-	vars := make(map[string]interface{}, len(raw))
-	for k, v := range raw {
-		if n, ok := v.(json.Number); ok {
-			if i, err := n.Int64(); err == nil {
-				vars[k] = i
-			} else if f, err := n.Float64(); err == nil {
-				vars[k] = f
-			}
-			continue
-		}
-		vars[k] = v
-	}
-	return vars, nil
+// appState is the optional second argument of executeLayer.
+type appState struct {
+	Model    json.RawMessage   `json:"model"`
+	Messages []json.RawMessage `json:"messages"`
 }
 
 func executeLayer(this js.Value, args []js.Value) interface{} {
 	if len(args) < 1 {
 		return errorJSON("executeLayer expects source code")
 	}
-	var vars map[string]interface{}
+	opts := runner.Options{}
 	if len(args) > 1 && args[1].Type() == js.TypeString {
-		var err error
-		if vars, err = decodeVars(args[1].String()); err != nil {
-			return errorJSON("invalid variables: " + err.Error())
+		var state appState
+		if err := json.Unmarshal([]byte(args[1].String()), &state); err != nil {
+			return errorJSON("invalid app state: " + err.Error())
+		}
+		if len(state.Model) > 0 && string(state.Model) != "null" {
+			opts.Model = string(state.Model)
+		}
+		for _, msg := range state.Messages {
+			opts.Messages = append(opts.Messages, string(msg))
 		}
 	}
-	return toJSON(runner.Run(args[0].String(), runner.Options{Vars: vars}))
+	return toJSON(runner.Run(args[0].String(), opts))
 }
 
 func describeLayer(this js.Value, args []js.Value) interface{} {

@@ -187,7 +187,8 @@ func TestCheckLetIsNotRecursive(t *testing.T) {
 
 func TestCheckQualifiedReferences(t *testing.T) {
 	mustFail(t, "@layers [core]\n@layer core {\n fn f(x) = x\n}\ncore.g(1)", "'core.g' is not defined")
-	mustFail(t, "@layers [core]\nnope.f(1)", "layer 'nope' is not active")
+	mustFail(t, "@layers [core]\nnope.f(1)", "undefined name 'nope' (not a local value or a layer)")
+	mustFail(t, "@layers [core]\n@layer hidden {\n fn f() = 1\n}\nhidden.f()", "layer 'hidden' is not active")
 	mustFail(t, "@layers [core]\n@layer core {\n fn f(x) = data.Some(x)\n}\nf(1)", "layer 'data' is not active")
 }
 
@@ -390,10 +391,11 @@ func TestShow(t *testing.T) {
 func TestUIRenderEscapesAndSortsAttributes(t *testing.T) {
 	got := mustExecute(t, `
 	@layers [core, ui]
-	view({title: "a < b & \"c\"", children: [button({onclick: "x < 1", label: "go"})]})
+	view({title: "a < b & \"c\"", children: [button({on_click: {set: "x<1"}, label: "go"})]})
 	`)
 	xml := Show(got)
-	want := "<view title=\"a &lt; b &amp; &#34;c&#34;\">\n  <button label=\"go\" onclick=\"x &lt; 1\" />\n</view>"
+	// Messages are written as JSON so the runtime can send them back exactly.
+	want := "<view title=\"a &lt; b &amp; &#34;c&#34;\">\n  <button label=\"go\" on_click=\"{&#34;set&#34;:&#34;x&lt;1&#34;}\" />\n</view>"
 	if xml != want {
 		t.Errorf("got:\n%s\nwant:\n%s", xml, want)
 	}
@@ -543,4 +545,139 @@ func TestBlendEntryForFunctionInHiddenLayerIsAllowed(t *testing.T) {
 	if got != int64(1) {
 		t.Errorf("got %v", got)
 	}
+}
+
+// ── Records: field access and update ─────────────────────────────────────────
+
+func TestRecordFieldAccess(t *testing.T) {
+	got := mustExecute(t, `
+	@layers [core]
+	@layer core {
+		fn area(r) = r.w * r.h
+		fn inner(o) = o.box.w
+	}
+	let p = {name: "Ada", box: {w: 2, h: 3}} in
+	[p.name, area(p.box), inner(p), {x: 1}.x, "{p.name} {p.box.h}"]
+	`)
+	if ShowNested(got) != `["Ada", 6, 2, 1, "Ada 3"]` {
+		t.Errorf("got %s", ShowNested(got))
+	}
+}
+
+func TestLocalNameShadowsLayerInFieldAccess(t *testing.T) {
+	got := mustExecute(t, `
+	@layers [core, data]
+	@layer core {
+		fn size(data) = data.count
+	}
+	[size({count: 3}), data.unwrap(data.Some(1), 0)]
+	`)
+	if ShowNested(got) != "[3, 1]" {
+		t.Errorf("got %s", ShowNested(got))
+	}
+}
+
+func TestRecordFieldErrors(t *testing.T) {
+	mustFail(t, `let p = {name: "Ada"} in p.nmae`, "the record has no field 'nmae' (fields: name)")
+	mustFail(t, `let n = 3 in n.x`, "cannot read field 'x' of integer")
+}
+
+func TestRecordUpdate(t *testing.T) {
+	got := mustExecute(t, `
+	@layers [core]
+	@layer core {
+		fn inc(m) = {m | count: m.count + m.step}
+	}
+	let m = {count: 1, step: 2} in
+	[inc(m), m, {inc(m) | step: 0}]
+	`)
+	// The original record is unchanged: updates return a copy.
+	if ShowNested(got) != "[{count: 3, step: 2}, {count: 1, step: 2}, {count: 3, step: 0}]" {
+		t.Errorf("got %s", ShowNested(got))
+	}
+}
+
+func TestRecordUpdateErrors(t *testing.T) {
+	mustFail(t, `let m = {count: 1} in {m | cuont: 2}`, "cannot update field 'cuont': the record has no such field (fields: count)")
+	mustFail(t, `let m = [1] in {m | a: 2}`, "only records can be updated")
+	mustFail(t, `let m = {a: 1} in {m | }`, "needs at least one field")
+	mustFail(t, `let m = {a: 1} in {m a: 2}`, "expected '|' in record update")
+	mustFail(t, `{a: 1, a: 2}`, "field 'a' is given twice")
+}
+
+func TestRecordUpdateIsChecked(t *testing.T) {
+	mustFail(t, `{nope | a: 1}`, "undefined name 'nope'")
+	mustFail(t, `let m = {a: 1} in {m | a: missing}`, "undefined name 'missing'")
+}
+
+// ── Apps and plain data ───────────────────────────────────────────────────────
+
+func TestDataRoundTripKeepsIntegersAndFloats(t *testing.T) {
+	value := map[string]interface{}{
+		"n": int64(3), "f": 3.0, "g": 2.5, "s": "a\"b", "b": true, "none": nil,
+		"list": []interface{}{int64(1), map[string]interface{}{"x": 1e21}},
+	}
+	encoded, err := EncodeData(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(encoded, `"f":3.0`) || !strings.Contains(encoded, `"n":3`) {
+		t.Errorf("encoding %s", encoded)
+	}
+	decoded, err := DecodeData(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ShowNested(decoded) != ShowNested(value) {
+		t.Errorf("round trip: %s != %s", ShowNested(decoded), ShowNested(value))
+	}
+	if _, isFloat := decoded.(map[string]interface{})["f"].(float64); !isFloat {
+		t.Errorf("3.0 should decode as a float")
+	}
+	if _, err := DecodeData("{} extra"); err == nil {
+		t.Error("trailing content should be rejected")
+	}
+}
+
+func TestCheckDataNamesTheOffendingPart(t *testing.T) {
+	fn := &Closure{Params: []string{"x"}}
+	err := CheckData(map[string]interface{}{"items": []interface{}{int64(1), fn}}, "model")
+	if err == nil || !strings.Contains(err.Error(), "model.items[1] is a function") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestUIConstructorsArePure(t *testing.T) {
+	// A pure custom layer can build UI: rendering is the runtime's effect.
+	got := mustExecute(t, `
+	@layers [core, ui, panels]
+	@layer panels {
+		fn card(title) = view({title: title, children: [text("hi"), button({label: "x", on_click: "x"})]})
+	}
+	card("t")
+	`)
+	if _, ok := got.(*UIComponent); !ok {
+		t.Errorf("got %T", got)
+	}
+}
+
+func TestHandlerProps(t *testing.T) {
+	mustFail(t, "@layers [core, ui]\nbutton({label: \"a\", on_click: λ(x) -> x})", "on_click must be a message (plain data): on_click is a function")
+	mustFail(t, "@layers [core, ui]\ninput({on_input: 3})", "on_input must be a string tag")
+	mustFail(t, "@layers [core, ui]\nbutton({onclick: \"inc()\"})", "onclick code strings were removed")
+	mustFail(t, "@layers [core, ui]\nbutton({on_click: \"inc\", target: \"display\"})", "target was removed")
+}
+
+func TestAppValidation(t *testing.T) {
+	src := func(spec string) string {
+		return "@layers [core, ui]\n@layer core {\n fn init() = {n: 0}\n fn update(msg, m) = m\n fn page(m) = text(\"x\")\n}\napp(" + spec + ")"
+	}
+	if _, ok := mustExecute(t, src("{init: init(), update: update, view: page}")).(*App); !ok {
+		t.Error("expected an app")
+	}
+	mustFail(t, src("{init: init, update: update, view: page}"), "did you mean init()?")
+	mustFail(t, src("{init: init(), update: update}"), "missing view")
+	mustFail(t, src("{init: init(), update: 1, view: page}"), "app update must be a function")
+	mustFail(t, src("{init: init(), update: update, view: page, extra: 1}"), "unknown app field 'extra'")
+	mustFail(t, src("{init: {f: page}, update: update, view: page}"), "app init must be plain data: init.f is a function")
 }

@@ -81,11 +81,29 @@ add(1, ?)                             # partial application`}</Code>
         </Typography>
       </Section>
 
-      <Section title="Interactive UI">
+      <Section title="Interactive apps">
+        <Typography variant="body2" sx={{ mb: 1 }}>
+          A main expression that returns <code>app({'{'}init, update, view{'}'})</code> runs as a live app. The model is
+          plain data; buttons and inputs send <strong>messages</strong> (also plain data), and <code>update(msg, model)</code>{' '}
+          returns the next model. The Output panel shows the model and every message — click one to go back to that
+          state. Running again (or toggling a layer) keeps the model; <strong>Restart</strong> starts from{' '}
+          <code>init</code>.
+        </Typography>
+        <Code>{`fn update(msg, model) =
+  match msg with
+  | "inc"     -> {model | count: model.count + 1}   # record update
+  | {step: s} -> {model | step: s}
+
+fn page(model) = view({title: "Counter", children: [
+  text("Count: {model.count}"),
+  button({label: "+", on_click: "inc"}),
+  input({type: "number", value: model.step, on_input: "step"})  # sends {step: n}
+]})
+
+app({init: {count: 0, step: 1}, update: update, view: page})`}</Code>
         <Typography variant="body2">
-          With the <code>ui</code> layer, a main expression that returns <code>view(...)</code> renders live. A button's{' '}
-          <code>onclick</code> is a Layer expression; input values are available by their <code>name</code>. Add{' '}
-          <code>target: "display"</code> to write a button's result into the input named <code>display</code>.
+          Layers wrap apps too: a debug layer can redefine <code>update</code> to log each message, and with{' '}
+          <code>blend: {'{'}page: collect{'}'}</code> every layer can add a panel. See the app examples.
         </Typography>
       </Section>
 

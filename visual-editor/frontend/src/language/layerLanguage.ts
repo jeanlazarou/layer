@@ -14,7 +14,7 @@ const BUILTINS: Record<string, string[]> = {
     'id', 'const', 'compose', 'print',
   ],
   debug: ['log', 'trace', 'inspect', 'assert_equal', 'benchmark', 'breakpoint', 'get_logs', 'clear_logs'],
-  ui: ['view', 'text', 'button', 'input', 'container', 'row', 'column', 'render'],
+  ui: ['app', 'view', 'text', 'button', 'input', 'container', 'row', 'column', 'render'],
   data: [
     'Some', 'None', 'is_some', 'is_none', 'unwrap', 'map_option', 'flatmap_option',
     'read_file', 'write_file', 'exists', 'delete', 'list_files', 'read_json', 'write_json',

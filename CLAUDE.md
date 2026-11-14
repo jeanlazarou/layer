@@ -24,6 +24,7 @@ gofmt -l .                             # CI fails on unformatted files
 go run ./cmd/layer run ../examples/fibonacci.layer     # run a program
 go run ./cmd/layer check file.layer                    # load + static checks only
 go run ./cmd/layer run -D env=dev file.layer           # seed variables for @layers conditions
+go run ./cmd/layer run --send '"inc"' app.layer        # send messages to an app, print model + view
 ./build-wasm.sh                        # writes ../visual-editor/frontend/public/{layer.wasm,wasm_exec.js}
 node test_wasm_node.js                 # smoke-test the WASM build (run after build-wasm.sh)
 
@@ -71,6 +72,14 @@ Key interpreter files (`layer-go/pkg/interpreter/`):
 - **Strings**: double-quoted strings interpolate `{expr}` (unless `{` is followed by whitespace, a quote, `\` or
   `}`; `\{` escapes). Single-quoted strings never interpolate.
 - **`if c then a else b`** — `if`/`then`/`else`/`when`/`blend` are soft keywords (lexed as identifiers).
+- **Records**: `r.field` is field access when `r` is a local value, layer access otherwise (`core.f`); locals
+  shadow layer names. `{r | f: v}` (Elm) copies with replaced fields, which must already exist.
+- **Apps**: `app({init, update, view})` (ui built-in) returns `*interpreter.App`. Models and messages are plain
+  data (`CheckData`/`EncodeData`/`DecodeData` in `data.go`; floats keep a `.0` so ints/floats round-trip).
+  `runner.Run` drives apps statelessly: `Options.Model` (JSON) + `Messages` (JSON) / `Send` (Layer expressions)
+  → `Result.Model`/`ModelText`/`Display` (view XML; a list of components becomes a column). Handlers render as
+  JSON attributes (`on_click`, `on_input`). The ui constructors are pure exceptions, so pure layers can build
+  UI. `onclick`/`target` props are errors that explain the replacement.
 - **Purity**: `core` and custom layers are pure; `ui`/`debug`/`data` impure; `@layer<impure> name` opts in.
   Enforced statically (check.go) and at runtime.
 - **Blend modes**: `@layers [...] blend: chain` (all names) or `blend: {fetch: fallback, _: chain}` (per
@@ -102,7 +111,8 @@ purity), add a color in `visual-editor/frontend/src/program.ts` (`LAYER_COLORS`)
 `BUILTIN_LAYERS` in `src/types/index.ts`.
 
 **Examples and docs are tested**: every `examples/*.layer` must run (a `# Result: ...` comment is compared
-with the output), and every ```` ```layer ```` block in README.md that starts with `@layers` must run
+with the output; an app's `# Send: <msg>` lines are sent in order and the final model is compared with
+`# Model: ...`), and every ```` ```layer ```` block in README.md that starts with `@layers` must run
 (`layer-go/cmd/layer/main_test.go`). Start an intentionally failing README snippet with a comment line.
 
 ## Visual editor notes
@@ -110,9 +120,11 @@ with the output), and every ```` ```layer ```` block in README.md that starts wi
 - `src/program.ts` assembles editor state into a program (`buildProgram`) and maps interpreter positions back
   to a layer + line (`locateIssue`); the editor's layer order is top-first, the program's is bottom-first.
 - Live diagnostics call `describeLayer` (debounced) on every edit; runs call `executeLayer`.
-- UI button handlers run `onclick` as the main expression with input values passed as variables
-  (`executeLayer(source, varsJSON)`) — never splice user text into source. `target: "<input>"` routes a result
-  into an input.
+- Apps: `App.tsx` keeps an `AppSession` (every step: message, model, view) for the inspector and time travel;
+  each message is `executeLayer(source, {model, messages: [msg]})` — never splice user text into source.
+  App operations go through a queue so rapid events apply in order. Run/structural changes re-render with the
+  current model (hot reload); Restart starts from init. Input keystrokes are merged into one history entry
+  (`AppStep.group`).
 - Layer colors: core green, ui blue, debug orange, data purple.
 - Browser tests live in `e2e/editor.spec.ts`. They drive Monaco through `window.monaco` (`setCode` helper),
   navigate to `'./'` (never `'/'`, which breaks under the Pages sub-path), and find controls by role/label —
@@ -122,7 +134,8 @@ with the output), and every ```` ```layer ```` block in README.md that starts wi
 
 Implemented: interpreter, CLI, WASM editor, core/ui/debug/data layers, open recursion, blend modes, purity
 (static + runtime), conditional layers, introspection (`@which`, `@inspect`, `@diff`), partial application.
-Per-function blend modes. Not implemented: type inference (Hindley-Milner is specified only), modules, REPL.
+Per-function blend modes, records (field access/update), interactive apps (model/update/view). Not implemented:
+type inference (Hindley-Milner is specified only), modules, REPL.
 
 ## Docs
 

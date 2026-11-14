@@ -4,6 +4,24 @@ Complete history of the Go/WASM implementation migration.
 
 ---
 
+## November 14, 2026 - Interactive apps (model / update / view); records
+
+- Records: field access `r.field` (a local value shadows a layer name) and Elm-style update `{r | f: v}`
+  (only existing fields; misspellings are errors).
+- `app({init, update, view})`: models and messages are plain data; `on_click` sends a message, `on_input:
+  "tag"` sends `{tag: text}` (numbers for `type: "number"`). Handlers render as JSON attributes.
+- The ui constructors are pure exceptions: pure layers can build UI.
+- Removed `onclick` code strings, `target`, and input values bound as variables; using them is an error that
+  explains the replacement.
+- `runner.Run` drives apps statelessly (`Model`, `Messages`, `Send` options; `Result.Model`/`ModelText`);
+  `executeLayer(source, {model, messages})` in WASM; `layer run --send MSG` on the CLI.
+- `CheckData`/`EncodeData`/`DecodeData`: plain data with exact int/float round trips.
+- Examples: calculator and simple_calculator are apps; new app_counter (debug layer wraps update) and
+  app_todo (collected panels, persistence layer); `# Send:`/`# Model:` comments are checked by the tests.
+  simple_calculator_with_conversions was removed (it duplicated simple_calculator).
+
+---
+
 ## November 13, 2026 - Per-function blend modes; combining modes apply once per call
 
 - `@layers [...] blend: {fetch: fallback, total: chain, _: collect}` — per-function modes with `_` as the

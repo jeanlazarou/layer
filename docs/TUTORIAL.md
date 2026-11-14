@@ -234,18 +234,56 @@ Create user interfaces declaratively:
 @layers [core, ui]
 
 @layer ui {
-    fn app() =
+    fn page() =
         view({
             title: "My App",
             children: [
                 text({content: "Hello!"}),
-                button({label: "Click me"})
+                text({content: "A static UI: nothing here reacts yet."})
             ]
         })
 }
 
-render(app())
+render(page())
 ```
+
+### Interactive apps
+
+To make a UI react, write an **app**: a model (plain data), an `update` function that computes the next model
+from a message, and a view of the model. Buttons send messages:
+
+```layer
+@layers [core, ui]
+
+@layer core {
+    fn update(msg, model) =
+        match msg with
+        | "inc"   -> {model | clicks: model.clicks + 1}
+        | "reset" -> {model | clicks: 0}
+}
+
+@layer ui {
+    fn page(model) =
+        view({
+            title: "My App",
+            children: [
+                text("Clicked {model.clicks} times"),
+                row([
+                    button({label: "Click me", on_click: "inc"}),
+                    button({label: "Reset", on_click: "reset"})
+                ])
+            ]
+        })
+}
+
+app({init: {clicks: 0}, update: update, view: page})
+```
+
+`{model | clicks: ...}` makes a copy of the model with `clicks` replaced, and `model.clicks` reads a field.
+In the editor, the Output panel shows the running app with its model and every message; on the command
+line, `layer run --send '"inc"' --send '"inc"' my_app.layer` prints the model after two clicks. See
+`examples/app_counter.layer` and `examples/app_todo.layer` for apps that layers extend (logging every
+message, saving the model, adding panels).
 
 ## Layer Composition
 
@@ -269,7 +307,7 @@ The power of Layer comes from composing layers:
 }
 
 @layer ui {
-    fn app() =
+    fn page() =
         view({
             children: [
                 text({content: "Fib(10):"}),
@@ -278,7 +316,7 @@ The power of Layer comes from composing layers:
         })
 }
 
-render(app())
+render(page())
 ```
 
 In this example:

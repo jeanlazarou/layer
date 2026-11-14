@@ -78,8 +78,23 @@ Go values represent Layer values: `int64`, `float64`, `string`, `bool`, `[]inter
 built-ins `func(...interface{}) (interface{}, error)`, and `*UIComponent`. `Show` renders them in Layer
 literal syntax for results, logs and interpolation; `typeName` names their type in error messages.
 
+Records are read with `r.field` (when `r` is a local value; otherwise `x.name` is layer access) and copied
+with `{r | field: value}`, which may only replace existing fields.
+
 `Closure` holds parameters, body, captured environment, the defining layer (for purity), an optional name
 (for traces), and optionally a `Native` Go implementation (used by `compose`, `const`, `trace`, `benchmark`).
+
+## Apps
+
+`app({init, update, view})` returns an `*App`. `runner.Run` drives it without keeping state between calls:
+it loads the program, evaluates the main expression to get the app, starts from `init` (or from
+`Options.Model`, JSON), applies `Options.Messages` (JSON) and `Options.Send` (Layer expressions) with
+`update`, and renders `view(model)`. The result carries the model as JSON (`Result.Model`) for the next call.
+Models and messages must be plain data (`data.go`: `CheckData`, `EncodeData`, `DecodeData`; floats keep a
+decimal point so integers and floats round-trip exactly). Event handlers are rendered into the view XML as
+JSON (`on_click`, `on_input`), so the editor sends back exactly the message the program wrote. Because every
+event re-runs the program on the current layer stack, toggling layers changes a running app's behaviour while
+the editor keeps its model.
 
 ## Errors
 

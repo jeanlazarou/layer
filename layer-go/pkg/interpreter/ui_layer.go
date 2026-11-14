@@ -18,7 +18,8 @@ type UIComponent struct {
 
 // Render renders the component to XML. Attribute values and text are
 // escaped, and attributes are emitted in sorted order so the output is
-// deterministic.
+// deterministic. Event handlers (on_click, on_input, ...) are written as
+// JSON so the runtime can send the exact message back.
 func (u *UIComponent) Render(indent int) string {
 	indentStr := strings.Repeat("  ", indent)
 	var b strings.Builder
@@ -32,7 +33,13 @@ func (u *UIComponent) Render(indent int) string {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		b.WriteString(" " + key + "=\"" + xmlEscape(Show(u.Props[key])) + "\"")
+		value := Show(u.Props[key])
+		if isHandler(key) {
+			if encoded, err := EncodeData(u.Props[key]); err == nil {
+				value = encoded
+			}
+		}
+		b.WriteString(" " + key + "=\"" + xmlEscape(value) + "\"")
 	}
 
 	if len(u.Children) == 0 {
@@ -62,21 +69,87 @@ func (u *UIComponent) String() string {
 	return u.Render(0)
 }
 
+func isHandler(prop string) bool {
+	return strings.HasPrefix(prop, "on_")
+}
+
+// checkProps validates the props of a component: event handlers must be
+// messages (plain data), and the props of the removed string-handler model
+// get an explanation instead of silently doing nothing.
+func checkProps(component string, props map[string]interface{}) error {
+	if _, ok := props["onclick"]; ok {
+		return fmt.Errorf("%s: onclick code strings were removed — give the button a message instead, e.g. button({label: \"+\", on_click: \"inc\"}), and handle it in an app's update (see LANGUAGE_SPEC, Interactive apps)", component)
+	}
+	if _, ok := props["target"]; ok {
+		return fmt.Errorf("%s: target was removed — in an app, update decides how a message changes the model", component)
+	}
+	for key, value := range props {
+		if !isHandler(key) {
+			continue
+		}
+		if err := CheckData(value, key); err != nil {
+			return fmt.Errorf("%s: %s must be a message (plain data): %v", component, key, err)
+		}
+	}
+	if tag, ok := props["on_input"]; ok {
+		if _, isString := tag.(string); !isString {
+			return fmt.Errorf("%s: on_input must be a string tag — typing sends the message {tag: text}, got %s", component, typeName(tag))
+		}
+	}
+	return nil
+}
+
+// App is the value of app({init, update, view}). The runtime (the editor,
+// or the CLI with --send) drives it: model = init; show view(model); for
+// each message, model = update(msg, model) and show the view again. Models
+// and messages are plain data.
+type App struct {
+	Init   interface{}
+	Update interface{}
+	View   interface{}
+}
+
+func (a *App) String() string {
+	return "<app>"
+}
+
+// uiPureFunctions are the ui layer's constructors. They only build values,
+// so pure layers may call them; the effects (rendering, events) belong to
+// the runtime.
+var uiPureFunctions = []string{"view", "text", "button", "input", "container", "row", "column", "render", "app"}
+
 // SetupUILayer sets up the UI layer with component constructors
 func SetupUILayer(lc *layers.LayerContext) {
 	lc.SetCurrentLayer("ui")
 
-	// view component
+	propsComponent := func(name string) func(args ...interface{}) (interface{}, error) {
+		return func(args ...interface{}) (interface{}, error) {
+			if len(args) != 1 {
+				return nil, fmt.Errorf("%s expects 1 argument (props)", name)
+			}
+			props, ok := args[0].(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("%s expects a record of props, got %s", name, typeName(args[0]))
+			}
+			if err := checkProps(name, props); err != nil {
+				return nil, err
+			}
+			return &UIComponent{Type: name, Props: props, Children: []interface{}{}}, nil
+		}
+	}
+
+	// view({title, children}) — a titled panel
 	lc.Define("view", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("view expects 1 argument (props)")
 		}
-
 		props, ok := args[0].(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("view expects a record/map")
+			return nil, fmt.Errorf("view expects a record of props, got %s", typeName(args[0]))
 		}
-
+		if err := checkProps("view", props); err != nil {
+			return nil, err
+		}
 		children := make([]interface{}, 0)
 		if childrenVal, found := props["children"]; found {
 			if childList, ok := childrenVal.([]interface{}); ok {
@@ -85,155 +158,122 @@ func SetupUILayer(lc *layers.LayerContext) {
 				children = []interface{}{childrenVal}
 			}
 		}
-
-		return &UIComponent{
-			Type:     "view",
-			Props:    props,
-			Children: children,
-		}, nil
+		return &UIComponent{Type: "view", Props: props, Children: children}, nil
 	})
 
-	// text component
+	// text("Hello") or text({content: "Hello"})
 	lc.Define("text", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("text expects 1 argument")
 		}
-
-		// Allow shorthand: text("Hello") or text({content: "Hello"})
 		props := make(map[string]interface{})
-
 		if str, ok := args[0].(string); ok {
 			props["content"] = str
 		} else if propsMap, ok := args[0].(map[string]interface{}); ok {
 			props = propsMap
 		} else {
-			return nil, fmt.Errorf("text expects a string or record")
+			props["content"] = Show(args[0])
 		}
-
-		return &UIComponent{
-			Type:     "text",
-			Props:    props,
-			Children: []interface{}{},
-		}, nil
+		if err := checkProps("text", props); err != nil {
+			return nil, err
+		}
+		return &UIComponent{Type: "text", Props: props, Children: []interface{}{}}, nil
 	})
 
-	// button component
-	lc.Define("button", func(args ...interface{}) (interface{}, error) {
-		if len(args) != 1 {
-			return nil, fmt.Errorf("button expects 1 argument (props)")
-		}
+	// button({label, on_click: message})
+	lc.Define("button", propsComponent("button"))
 
-		props, ok := args[0].(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("button expects a record/map")
-		}
+	// input({name, value, type, placeholder, label, on_input: tag})
+	lc.Define("input", propsComponent("input"))
 
-		return &UIComponent{
-			Type:     "button",
-			Props:    props,
-			Children: []interface{}{},
-		}, nil
-	})
-
-	// input component
-	lc.Define("input", func(args ...interface{}) (interface{}, error) {
-		if len(args) != 1 {
-			return nil, fmt.Errorf("input expects 1 argument (props)")
-		}
-
-		props, ok := args[0].(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("input expects a record/map")
-		}
-
-		return &UIComponent{
-			Type:     "input",
-			Props:    props,
-			Children: []interface{}{},
-		}, nil
-	})
-
-	// container component
+	// container(layout, children)
 	lc.Define("container", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 2 {
 			return nil, fmt.Errorf("container expects 2 arguments (layout, children)")
 		}
-
 		layout, ok := args[0].(string)
 		if !ok {
 			return nil, fmt.Errorf("container layout must be a string")
 		}
-
 		children, ok := args[1].([]interface{})
 		if !ok {
 			return nil, fmt.Errorf("container children must be a list")
 		}
-
-		props := map[string]interface{}{
-			"layout": layout,
-		}
-
-		return &UIComponent{
-			Type:     "container",
-			Props:    props,
-			Children: children,
-		}, nil
+		return &UIComponent{Type: "container", Props: map[string]interface{}{"layout": layout}, Children: children}, nil
 	})
 
-	// row helper
-	lc.Define("row", func(args ...interface{}) (interface{}, error) {
-		if len(args) != 1 {
-			return nil, fmt.Errorf("row expects 1 argument (children)")
+	box := func(name, layout string) func(args ...interface{}) (interface{}, error) {
+		return func(args ...interface{}) (interface{}, error) {
+			if len(args) != 1 {
+				return nil, fmt.Errorf("%s expects 1 argument (children)", name)
+			}
+			children, ok := args[0].([]interface{})
+			if !ok {
+				return nil, fmt.Errorf("%s children must be a list, got %s", name, typeName(args[0]))
+			}
+			return &UIComponent{Type: "container", Props: map[string]interface{}{"layout": layout}, Children: children}, nil
 		}
+	}
+	lc.Define("row", box("row", "horizontal"))
+	lc.Define("column", box("column", "vertical"))
 
-		children, ok := args[0].([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("row children must be a list")
-		}
-
-		props := map[string]interface{}{
-			"layout": "horizontal",
-		}
-
-		return &UIComponent{
-			Type:     "container",
-			Props:    props,
-			Children: children,
-		}, nil
-	})
-
-	// column helper
-	lc.Define("column", func(args ...interface{}) (interface{}, error) {
-		if len(args) != 1 {
-			return nil, fmt.Errorf("column expects 1 argument (children)")
-		}
-
-		children, ok := args[0].([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("column children must be a list")
-		}
-
-		props := map[string]interface{}{
-			"layout": "vertical",
-		}
-
-		return &UIComponent{
-			Type:     "container",
-			Props:    props,
-			Children: children,
-		}, nil
-	})
-
-	// render function
+	// render(component) — the component as XML text
 	lc.Define("render", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("render expects 1 argument (component)")
 		}
-
 		if comp, ok := args[0].(*UIComponent); ok {
 			return comp.Render(0), nil
 		}
-
-		return fmt.Sprintf("%v", args[0]), nil
+		return Show(args[0]), nil
 	})
+
+	// app({init: model, update: fn(msg, model), view: fn(model)})
+	lc.Define("app", func(args ...interface{}) (interface{}, error) {
+		const usage = "app expects {init: <initial model>, update: fn(msg, model), view: fn(model)}"
+		if len(args) != 1 {
+			return nil, fmt.Errorf("%s", usage)
+		}
+		spec, ok := args[0].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("%s, got %s", usage, typeName(args[0]))
+		}
+		for key := range spec {
+			if key != "init" && key != "update" && key != "view" {
+				return nil, fmt.Errorf("unknown app field '%s' — %s", key, usage)
+			}
+		}
+		init, hasInit := spec["init"]
+		update, hasUpdate := spec["update"]
+		view, hasView := spec["view"]
+		if !hasInit || !hasUpdate || !hasView {
+			return nil, fmt.Errorf("%s (missing %s)", usage, missingFields(hasInit, hasUpdate, hasView))
+		}
+		if isCallable(init) {
+			return nil, fmt.Errorf("app init must be the initial model, got a function — did you mean init()?")
+		}
+		if err := CheckData(init, "init"); err != nil {
+			return nil, fmt.Errorf("app init must be plain data: %v", err)
+		}
+		if !isCallable(update) {
+			return nil, fmt.Errorf("app update must be a function fn(msg, model), got %s", typeName(update))
+		}
+		if !isCallable(view) {
+			return nil, fmt.Errorf("app view must be a function fn(model), got %s", typeName(view))
+		}
+		return &App{Init: init, Update: update, View: view}, nil
+	})
+}
+
+func missingFields(hasInit, hasUpdate, hasView bool) string {
+	var missing []string
+	for _, f := range []struct {
+		name string
+		has  bool
+	}{{"init", hasInit}, {"update", hasUpdate}, {"view", hasView}} {
+		if !f.has {
+			missing = append(missing, f.name)
+		}
+	}
+	return strings.Join(missing, ", ")
 }

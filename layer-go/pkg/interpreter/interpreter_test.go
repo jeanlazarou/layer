@@ -197,13 +197,13 @@ func TestInterpreterUIComponent(t *testing.T) {
 	@layers [core, ui]
 
 	@layer ui {
-		fn app() = view({
+		fn page() = view({
 			title: "Test",
 			children: [text({content: "Hello"})]
 		})
 	}
 
-	app()
+	page()
 	`
 
 	tokens, _ := lexer.Tokenize(source)

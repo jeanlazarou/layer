@@ -1,0 +1,85 @@
+# Todo list — layers add behaviour to an app without touching it
+#
+#   core:    the todo logic (pure)
+#   ui:      the main panel
+#   stats:   a second panel. With blend: {page: collect}, every layer that
+#            defines page contributes a panel. stats is a pure layer: the ui
+#            constructors only build values.
+#   persist: saves the model after every message and restores it at start
+#            (impure: it uses the data layer). Hide it and nothing is saved.
+
+@layers [core, stats, ui, data, persist] blend: {page: collect}
+
+@layer core {
+    fn init() = {items: [], draft: ""}
+
+    fn update(msg, model) =
+        match msg with
+        | {draft: text} -> {model | draft: text}
+        | "add"         -> add_item(model)
+        | {toggle: i}   -> {model | items: toggle_at(model.items, i)}
+        | "clear_done"  -> {model | items: filter(λ(item) -> not item.done, model.items)}
+
+    fn add_item(model) =
+        if model.draft == "" then model
+        else {model | items: concat(model.items, [{text: model.draft, done: false}]), draft: ""}
+
+    fn toggle_at(items, i) =
+        match items with
+        | []           -> []
+        | [h, ...rest] ->
+            if i == 0 then concat([{h | done: not h.done}], rest)
+            else concat([h], toggle_at(rest, i - 1))
+
+    fn done_count(items) = length(filter(λ(item) -> item.done, items))
+}
+
+@layer ui {
+    fn page(model) =
+        view({
+            title: "Todo",
+            children: concat(
+                [row([
+                    input({name: "draft", placeholder: "What needs doing?", value: model.draft, on_input: "draft"}),
+                    button({label: "Add", on_click: "add"})
+                ])],
+                item_rows(model.items, 0))
+        })
+
+    fn item_rows(items, i) =
+        match items with
+        | []           -> []
+        | [h, ...rest] ->
+            concat([button({label: (if h.done then "☑ " else "☐ ") + h.text, on_click: {toggle: i}})],
+                   item_rows(rest, i + 1))
+}
+
+@layer stats {
+    fn page(model) =
+        view({
+            title: "Stats",
+            children: [
+                text("{length(model.items)} items, {done_count(model.items)} done"),
+                button({label: "Clear done", on_click: "clear_done"})
+            ]
+        })
+}
+
+@layer<impure> persist {
+    fn init() = data.unwrap(data.get("todo-model"), core.init())
+
+    fn update(msg, model) =
+        let next = core.update(msg, model) in
+        let _ = data.set("todo-model", next) in
+          next
+}
+
+app({init: init(), update: update, view: page})
+
+# Send: {draft: "milk"}
+# Send: "add"
+# Send: {draft: "bread"}
+# Send: "add"
+# Send: {toggle: 0}
+# Send: "clear_done"
+# Model: {draft: "", items: [{done: false, text: "bread"}]}

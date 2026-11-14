@@ -81,7 +81,7 @@
             ]
         })
 
-    fn app() =
+    fn page() =
         view({
             title: "Layer UI Interactive Demo",
             children: [
@@ -100,4 +100,4 @@
 }
 
 # Render the complete UI
-render(app())
+render(page())

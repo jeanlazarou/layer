@@ -1,0 +1,50 @@
+# Counter — an interactive app built from layers
+#
+#   core:  the model and how messages change it (pure)
+#   ui:    how the model looks; buttons and the input send messages
+#   debug: wraps update to log every message. Hide it in the editor and the
+#          app keeps running — and keeps its state — without logging.
+
+@layers [core, ui, debug]
+
+@layer core {
+    fn init() = {count: 0, step: 1}
+
+    fn update(msg, model) =
+        match msg with
+        | "inc"     -> {model | count: model.count + model.step}
+        | "dec"     -> {model | count: model.count - model.step}
+        | "reset"   -> {model | count: 0}
+        | {step: s} -> {model | step: s}
+}
+
+@layer ui {
+    fn page(model) =
+        view({
+            title: "Counter",
+            children: [
+                text("Count: {model.count}"),
+                row([
+                    button({label: "−", on_click: "dec"}),
+                    button({label: "+", on_click: "inc"}),
+                    button({label: "Reset", on_click: "reset"})
+                ]),
+                input({name: "step", label: "Step", type: "number", value: model.step, on_input: "step"})
+            ]
+        })
+}
+
+@layer debug {
+    fn update(msg, model) =
+        let next = core.update(msg, model) in
+        let _ = log("{msg} → count {next.count}") in
+          next
+}
+
+app({init: init(), update: update, view: page})
+
+# Send: "inc"
+# Send: {step: 5}
+# Send: "inc"
+# Send: "dec"
+# Model: {count: 1, step: 5}

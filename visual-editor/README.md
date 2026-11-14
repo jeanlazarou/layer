@@ -34,45 +34,31 @@ URLs, so a sub-path such as GitHub Pages' `/layer/` works). The repository's
   selector, which writes per-function modes (`blend: {fetch: fallback}`) into the program.
 - **Examples** menu with every program from [`examples/`](../examples/), plus **Open/Save** of `.layer`
   files (Save keeps hidden layers). Your work is also kept in the browser's localStorage between visits.
-- **Interactive UI.** When the main expression returns a `ui` component, the Output panel renders it with
-  Material UI widgets.
+- **Interactive apps.** When the main expression returns `app({init, update, view})`, the Output panel runs
+  it live with a model/message inspector (see below); a plain component is shown as a static UI.
 
-## Interactive UI
+## Interactive apps
 
-```layer
-@layers [core, ui]
+When the main expression returns `app({init, update, view})`, the Output panel runs the app:
 
-@layer core {
-  fn square(x) = x * x
-  fn double(x) = x + x
-}
+- The view is rendered with Material UI (`view`, `text`, `button`, `input`, `row`/`column`). Buttons send
+  their `on_click` message; inputs send `{tag: text}` for `on_input: "tag"` (numbers for `type: "number"`).
+  Messages and models are plain data, passed to the interpreter as JSON — never pasted into source code.
+- The inspector beside it shows the current **model** and every **message**. Click a message to go back to
+  the state after it; the next message continues from there. Keystrokes in one input are merged into one
+  history entry.
+- **Run** again (or toggle, reorder or re-blend a layer) re-renders the app with the new code and keeps its
+  model — hot reload. **Restart** starts again from `init`.
 
-@layer ui {
-  fn app() = view({
-    title: "Math Tools",
-    children: [
-      input({name: "num", type: "number", placeholder: "Enter number"}),
-      button({label: "Square", onclick: "square(num)"}),
-      button({label: "Double", onclick: "double(num)"})
-    ]
-  })
-}
-
-app()
-```
-
-- `view`, `text`, `button`, `input`, `container`/`row`/`column` map to Material UI components.
-- A button's `onclick` is a Layer expression evaluated on top of the current stack. Every `input` value is
-  bound as a variable named after the input (`type: "number"` inputs as numbers). Values are passed as data,
-  never pasted into source code, so any text is safe.
-- By default the result appears below the UI. `target: "display"` writes it into the input named `display`
-  instead (see [`examples/calculator.layer`](../examples/calculator.layer)).
+Each message is one `executeLayer(source, {model, messages: [msg]})` call: the interpreter keeps no state
+between events, the editor keeps the history. A main expression that returns a plain component is shown as a
+static UI.
 
 ## Code map
 
 ```
 frontend/src/
-  App.tsx                     state, toolbar, running, persistence, auto re-run
+  App.tsx                     state, toolbar, running, app sessions (messages, time travel, hot reload)
   program.ts                  editor state ⇄ Layer source; maps errors back to layers
   defaults.ts                 the project shown on first visit
   examples.ts                 bundles ../../examples/*.layer
@@ -81,8 +67,8 @@ frontend/src/
   components/
     LayerStack.tsx            layer cards, purity badges, diff pills
     CodeEditor.tsx            Monaco wrapper with error markers
-    OutputConsole.tsx         logs, results, clickable errors, UI preview
-    UIPreview.tsx             renders ui-layer XML as live components
+    OutputConsole.tsx         logs, results, clickable errors, UI preview, app inspector
+    UIPreview.tsx             renders ui-layer XML as live components; buttons/inputs send messages
     ResolutionPanel.tsx       "who answers each call?"
     HelpDialog.tsx
   wasm/
@@ -91,7 +77,7 @@ frontend/src/
 ```
 
 The WASM module exports three functions returning JSON (see
-[`layer-go/cmd/wasm/main.go`](../layer-go/cmd/wasm/main.go)): `executeLayer(source, varsJSON?)`,
+[`layer-go/cmd/wasm/main.go`](../layer-go/cmd/wasm/main.go)): `executeLayer(source, appStateJSON?)`,
 `describeLayer(source)` and `parseLayerFile(source)`.
 
 ## Checks
@@ -103,8 +89,9 @@ pnpm test:e2e                             # browser tests: builds, serves dist/,
 E2E_BASE_URL=https://jeanlazarou.github.io/layer/ pnpm test:e2e   # against a deployed copy
 ```
 
-The browser tests cover running, hiding layers, live diagnostics, located runtime errors, the UI preview,
-examples, the calculator's `target`, autosave across reloads, and the help dialog. CI runs them on every
+The browser tests cover running, hiding layers, live diagnostics, located runtime errors, apps (messages,
+inputs, time travel, hot reload, Restart, collected panels, persistence), examples, per-function blend
+modes, autosave across reloads, and the help dialog. CI runs them on every
 push and again against the live site after each Pages deploy.
 
 ## Known limitations

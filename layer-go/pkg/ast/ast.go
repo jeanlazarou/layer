@@ -69,6 +69,18 @@ func (r *RecordLiteral) String() string {
 	return "RecordLiteral"
 }
 
+// RecordUpdate is `{record | field: value, ...}`: a copy of record with
+// the listed fields replaced. Every listed field must already exist.
+type RecordUpdate struct {
+	Base
+	Record Node
+	Fields map[string]Node
+}
+
+func (r *RecordUpdate) String() string {
+	return "RecordUpdate"
+}
+
 type TupleLiteral struct {
 	Base
 	Elements []Node

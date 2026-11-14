@@ -16,7 +16,7 @@ async function main() {
   );
   go.run(instance);
 
-  const run = (src, vars) => JSON.parse(globalThis.executeLayer(src, vars ? JSON.stringify(vars) : undefined));
+  const run = (src) => JSON.parse(globalThis.executeLayer(src));
   const describe = (src) => JSON.parse(globalThis.describeLayer(src));
   const split = (src) => JSON.parse(globalThis.parseLayerFile(src));
   let failures = 0;
@@ -67,11 +67,22 @@ factorial(3)`;
     assert.deepStrictEqual(r.errors.map(e => [e.kind, e.line]), [['check', 3], ['check', 4]]);
   });
 
-  check('binds UI input values as variables (no string splicing)', () => {
-    const src = '@layers [core]\n@layer core {\n  fn square(x) = x * x\n}\nsquare(num)';
-    assert.strictEqual(run(src, { num: 7 }).result, '49');
-    const quoted = run('@layers [core]\ngreeting', { greeting: 'say "hi" {there}' });
-    assert.strictEqual(quoted.result, 'say "hi" {there}');
+  check('drives apps: init, then messages from a model (plain data round trip)', () => {
+    const app = '@layers [core, ui]\n@layer core {\n  fn update(msg, m) = match msg with | "inc" -> {m | n: m.n + 1} | {set: v} -> {m | n: v}\n}\n@layer ui {\n  fn page(m) = button({label: "n = {m.n}", on_click: "inc"})\n}\napp({init: {n: 0}, update: update, view: page})';
+    const start = run(app);
+    assert.strictEqual(start.kind, 'app');
+    assert.deepStrictEqual(start.model, { n: 0 });
+    assert.strictEqual(start.modelText, '{n: 0}');
+    assert.match(start.result, /on_click="&#34;inc&#34;"/);
+
+    const next = JSON.parse(globalThis.executeLayer(app, JSON.stringify({ model: start.model, messages: ['inc', 'inc'] })));
+    assert.strictEqual(next.success, true, JSON.stringify(next.errors));
+    assert.deepStrictEqual(next.model, { n: 2 });
+    assert.match(next.result, /n = 2/);
+
+    // A message carrying text (what typing in an input sends) is data, never code.
+    const typed = JSON.parse(globalThis.executeLayer(app, JSON.stringify({ messages: [{ set: 'say "hi" {there}' }] })));
+    assert.strictEqual(typed.modelText, '{n: "say \\"hi\\" {there}"}');
   });
 
   check('marks UI results', () => {

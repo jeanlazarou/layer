@@ -174,6 +174,8 @@ func ShowNested(val interface{}) string {
 		return v.String()
 	case *UIComponent:
 		return v.String()
+	case *App:
+		return v.String()
 	case func(...interface{}) (interface{}, error):
 		return "<builtin function>"
 	default:
@@ -205,6 +207,8 @@ func typeName(val interface{}) string {
 		return "function"
 	case *UIComponent:
 		return "ui component"
+	case *App:
+		return "app"
 	default:
 		return fmt.Sprintf("%T", val)
 	}

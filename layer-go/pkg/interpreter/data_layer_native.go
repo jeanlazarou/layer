@@ -14,6 +14,13 @@ import (
 // In-memory localStorage for WASM/non-browser environments
 var localStorage = make(map[string]interface{})
 
+// ResetStorage empties the in-memory store behind data.get/data.set. The
+// store lives for the whole process, so tests that run several programs
+// call this to keep them independent.
+func ResetStorage() {
+	localStorage = make(map[string]interface{})
+}
+
 // SetupDataLayer sets up the data layer with I/O and storage functions
 func SetupDataLayer(lc *layers.LayerContext) {
 	lc.SetCurrentLayer("data")

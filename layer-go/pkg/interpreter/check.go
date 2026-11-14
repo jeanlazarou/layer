@@ -43,9 +43,12 @@ func (s *scope) with(names ...string) *scope {
 
 type checker struct {
 	interp *Interpreter
-	layer  string // layer whose code is being checked ("" = top level)
-	issues []CheckIssue
-	seen   map[string]bool // de-duplicates identical issues at one position
+	// knownLayers holds every layer name the program could mean in x.f:
+	// built-in layers and declared layers, active or not.
+	knownLayers map[string]bool
+	layer       string // layer whose code is being checked ("" = top level)
+	issues      []CheckIssue
+	seen        map[string]bool // de-duplicates identical issues at one position
 }
 
 func (c *checker) report(node ast.Node, msg string) {
@@ -61,8 +64,16 @@ func (c *checker) report(node ast.Node, msg string) {
 // check runs the static checks over the active layer declarations, the
 // main expression, and the per-function blend modes of the directive.
 func (i *Interpreter) check(program *ast.Program, decls []*ast.LayerDeclaration) error {
-	c := &checker{interp: i, seen: make(map[string]bool)}
+	c := &checker{interp: i, seen: make(map[string]bool), knownLayers: map[string]bool{"core": true, "ui": true, "debug": true, "data": true}}
 	main := program.MainExpression
+	for _, decl := range program.LayerDeclarations {
+		c.knownLayers[decl.LayerName] = true
+	}
+	if program.LayersDirective != nil {
+		for _, entry := range program.LayersDirective.Layers {
+			c.knownLayers[entry.Name] = true
+		}
+	}
 
 	// A per-function blend mode must name a function some layer defines.
 	// Inactive (hidden) layers count: hiding a layer must not turn its
@@ -147,6 +158,12 @@ func (c *checker) walk(node ast.Node, sc *scope) {
 			c.walk(v, sc)
 		}
 
+	case *ast.RecordUpdate:
+		c.walk(n.Record, sc)
+		for _, v := range n.Fields {
+			c.walk(v, sc)
+		}
+
 	case *ast.Identifier:
 		if sc.has(n.Name) {
 			return
@@ -166,10 +183,14 @@ func (c *checker) walk(node ast.Node, sc *scope) {
 			return
 		}
 		if sc.has(ident.Name) {
-			return // a local value; member access on it fails at runtime with a clear message
+			return // record field access on a local value; checked at runtime
 		}
 		if !c.layerActive(ident.Name) {
-			c.report(n, fmt.Sprintf("layer '%s' is not active (add it to @layers to use %s.%s)", ident.Name, ident.Name, n.Member))
+			if c.knownLayers[ident.Name] {
+				c.report(n, fmt.Sprintf("layer '%s' is not active (add it to @layers to use %s.%s)", ident.Name, ident.Name, n.Member))
+			} else {
+				c.report(ident, fmt.Sprintf("undefined name '%s' (not a local value or a layer)", ident.Name))
+			}
 			return
 		}
 		if _, err := lc.GetLayerValue(ident.Name, n.Member); err != nil {
@@ -247,7 +268,7 @@ var builtinProviders = map[string]string{
 	"log": "debug", "trace": "debug", "inspect": "debug", "assert_equal": "debug",
 	"benchmark": "debug", "breakpoint": "debug", "get_logs": "debug", "clear_logs": "debug",
 	"view": "ui", "text": "ui", "button": "ui", "input": "ui", "container": "ui",
-	"row": "ui", "column": "ui", "render": "ui",
+	"row": "ui", "column": "ui", "render": "ui", "app": "ui",
 	"Some": "data", "None": "data", "is_some": "data", "is_none": "data", "unwrap": "data",
 	"map_option": "data", "flatmap_option": "data", "read_file": "data", "write_file": "data",
 	"exists": "data", "delete": "data", "list_files": "data", "read_json": "data",

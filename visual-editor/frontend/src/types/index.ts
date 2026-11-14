@@ -65,10 +65,34 @@ export interface LocatedIssue extends Issue {
 
 export interface RunResult {
   success: boolean
+  /** The value shown to the user; for 'ui' and 'app', the view as XML. */
   result: string
-  kind: 'value' | 'ui' | 'none'
+  kind: 'value' | 'ui' | 'app' | 'none'
+  /** App only: the current model (plain data, JSON) and its Layer text. */
+  model?: unknown
+  modelText?: string
   logs: string[]
   errors: Issue[]
+}
+
+/** One state of a running app: the message that led to it and the result. */
+export interface AppStep {
+  /** undefined for the initial state. */
+  msg?: unknown
+  model: unknown
+  modelText: string
+  view: string
+  /**
+   * Consecutive messages from the same source (keystrokes in one input) are
+   * merged into one history entry; this identifies the source.
+   */
+  group?: string
+}
+
+/** A running app: every state it went through, and the one on screen. */
+export interface AppSession {
+  steps: AppStep[]
+  index: number
 }
 
 export interface Description {

@@ -1119,18 +1119,61 @@ func (p *Parser) parseListLiteral() (*ast.ListLiteral, error) {
 	}, nil
 }
 
-// parseRecordLiteral parses record literal: {name: "Layer", version: 1}
-func (p *Parser) parseRecordLiteral() (*ast.RecordLiteral, error) {
+// parseRecordLiteral parses a record literal `{name: "Layer", version: 1}`
+// or a record update `{model | count: model.count + 1}` (Elm syntax).
+func (p *Parser) parseRecordLiteral() (ast.Node, error) {
 	start, err := p.expect(lexer.LBRACE)
 	if err != nil {
 		return nil, err
 	}
 
+	// `{ident:` or `{}` is a literal; anything else is `{expr | ...}`.
+	isLiteral := p.match(lexer.RBRACE) || (p.match(lexer.IDENTIFIER) && p.peek(1).Type == lexer.COLON)
+	var base ast.Node
+	if !isLiteral {
+		base, err = p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		if !p.match(lexer.PIPE) {
+			return nil, p.error(fmt.Sprintf("expected '|' in record update {record | field: value}, got %s", p.current().Type))
+		}
+		p.advance() // |
+	}
+
+	fields, err := p.parseRecordFields()
+	if err != nil {
+		return nil, err
+	}
+
+	if base != nil {
+		if len(fields) == 0 {
+			return nil, p.error("a record update needs at least one field: {record | field: value}")
+		}
+		return &ast.RecordUpdate{
+			Base:   ast.Base{Line: start.Line, Column: start.Column},
+			Record: base,
+			Fields: fields,
+		}, nil
+	}
+	return &ast.RecordLiteral{
+		Base:   ast.Base{Line: start.Line, Column: start.Column},
+		Fields: fields,
+	}, nil
+}
+
+// parseRecordFields parses `name: expr, ...` up to and including the
+// closing brace.
+func (p *Parser) parseRecordFields() (map[string]ast.Node, error) {
 	fields := make(map[string]ast.Node)
 	for !p.match(lexer.RBRACE) {
 		keyToken, err := p.expect(lexer.IDENTIFIER)
 		if err != nil {
 			return nil, err
+		}
+		key := keyToken.Value.(string)
+		if _, dup := fields[key]; dup {
+			return nil, fmt.Errorf("parser error at %d:%d: field '%s' is given twice", keyToken.Line, keyToken.Column, key)
 		}
 
 		if _, err := p.expect(lexer.COLON); err != nil {
@@ -1141,22 +1184,16 @@ func (p *Parser) parseRecordLiteral() (*ast.RecordLiteral, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		fields[keyToken.Value.(string)] = value
+		fields[key] = value
 
 		if p.match(lexer.COMMA) {
 			p.advance()
 		}
 	}
-
 	if _, err := p.expect(lexer.RBRACE); err != nil {
 		return nil, err
 	}
-
-	return &ast.RecordLiteral{
-		Base:   ast.Base{Line: start.Line, Column: start.Column},
-		Fields: fields,
-	}, nil
+	return fields, nil
 }
 
 // getPrecedence returns operator precedence

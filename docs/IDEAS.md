@@ -172,10 +172,10 @@ composition decides, not the function" property. The editor sets them per functi
 once per outermost call; recursion inside a participating layer stays in that layer. `override` keeps open
 recursion. `f(2)` in the chain example is now 20 (it was 110).
 
-**C. A UI model.** The UI layer is a view function plus `onclick` strings evaluated against input values.
-An Elm-style `init / update(msg, model) / view(model)` would fit a pure language better: state lives in Layer,
-handlers are values instead of strings, and the pure/impure split maps naturally (view and update pure, the
-runtime impure).
+**C. A UI model** — ✅ decided and implemented: apps with model / update / view (`app({init, update,
+view})`), plain-data messages (`on_click`, `on_input`), Elm record update syntax (`{m | count: 1}`), and pure
+ui constructors. The old `onclick` strings and `target` were removed. The editor shows the model and message
+history (time travel) and keeps the model across code changes. See LANGUAGE_SPEC "Interactive apps".
 
 **D. Off-main-thread execution.** The editor runs programs on the browser's main thread; a long computation
 freezes the page. Running the WASM module in a Web Worker would allow a "stop" button.

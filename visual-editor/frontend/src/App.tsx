@@ -36,7 +36,7 @@ import { buildProgram, describeLocation, locateIssue, normalizeOrder, projectFro
 import { loadWorkspace, saveWorkspace } from './storage'
 import { EXAMPLES } from './examples'
 import { DEFAULT_LAYERS, DEFAULT_MAIN } from './defaults'
-import { BLEND_MODES, DEFAULT_BLEND, isLayerPure, type BlendMode, type BlendSettings, type Description, type Layer, type LayerId, type LocatedIssue } from './types'
+import { BLEND_MODES, DEFAULT_BLEND, isLayerPure, type AppSession, type AppStep, type BlendMode, type BlendSettings, type Description, type Layer, type LayerId, type LocatedIssue, type RunResult } from './types'
 
 const saved = loadWorkspace()
 
@@ -113,21 +113,84 @@ function App() {
   }, [issues])
 
   // ── Running ────────────────────────────────────────────────────────────────
-  const handleRun = useCallback(async () => {
-    hasRun.current = true
-    setOutput(prev => ({ ...prev, status: 'running', notice: undefined }))
-    const res = await runProgram(program.source)
-    const located = res.errors.map(e => locateIssue(e, program))
-    setRunIssues({ source: program.source, issues: located })
-    setOutput({
-      status: 'done',
-      success: res.success,
-      result: res.result,
-      kind: res.kind,
-      logs: res.logs,
-      errors: located,
+  // When the main expression returns app({...}), the editor runs it: every
+  // message produces a new state (kept for time travel). Run and structural
+  // changes re-render the running app with the current code but keep its
+  // model ("hot reload"); Restart starts again from init.
+  const [appSession, setAppSessionState] = useState<AppSession | null>(null)
+  const sessionRef = useRef<AppSession | null>(null)
+  const setAppSession = (session: AppSession | null) => {
+    sessionRef.current = session
+    setAppSessionState(session)
+  }
+  const programRef = useRef(program)
+  programRef.current = program
+
+  // App operations run one at a time, in order (rapid clicks, typing).
+  const queue = useRef<Promise<void>>(Promise.resolve())
+  const enqueue = (task: () => Promise<void>) => {
+    queue.current = queue.current.then(task, task)
+    return queue.current
+  }
+
+  const showRun = (res: RunResult, prog: Program) => {
+    const located = res.errors.map(e => locateIssue(e, prog))
+    setRunIssues({ source: prog.source, issues: located })
+    setOutput({ status: 'done', success: res.success, result: res.result, kind: res.kind, logs: res.logs, errors: located })
+  }
+
+  const run = (fresh: boolean) =>
+    enqueue(async () => {
+      hasRun.current = true
+      const prog = programRef.current
+      const session = sessionRef.current
+      const current = !fresh && session ? session.steps[session.index] : undefined
+      setOutput(prev => ({ ...prev, status: 'running', notice: undefined }))
+      const res = await runProgram(prog.source, current ? { model: current.model } : undefined)
+      if (res.success && res.kind === 'app') {
+        const step: AppStep = { msg: current?.msg, model: res.model, modelText: res.modelText ?? '', view: res.result }
+        if (session && current) {
+          const steps = [...session.steps]
+          steps[session.index] = step
+          setAppSession({ steps, index: session.index })
+        } else {
+          setAppSession({ steps: [step], index: 0 })
+        }
+      } else if (res.success) {
+        setAppSession(null)
+      }
+      // On failure a running app keeps its last good view on screen.
+      showRun(res, prog)
     })
-  }, [program])
+
+  const handleRun = () => run(false)
+  const handleRestart = () => run(true)
+
+  const handleMessage = (msg: unknown, group?: string) =>
+    enqueue(async () => {
+      const session = sessionRef.current
+      if (!session) return
+      const prog = programRef.current
+      const current = session.steps[session.index]
+      const res = await runProgram(prog.source, { model: current.model, messages: [msg] })
+      const located = res.errors.map(e => locateIssue(e, prog))
+      if (res.success && res.kind === 'app') {
+        const step: AppStep = { msg, model: res.model, modelText: res.modelText ?? '', view: res.result, group }
+        const kept = session.steps.slice(0, session.index + 1)
+        // Keystrokes in one input extend the same history entry.
+        const merge = group !== undefined && current.group === group
+        const steps = merge ? [...kept.slice(0, -1), step] : [...kept, step]
+        setAppSession({ steps, index: steps.length - 1 })
+      } else {
+        setRunIssues({ source: prog.source, issues: located })
+      }
+      setOutput(prev => ({ ...prev, status: 'done', success: res.success, errors: located, logs: [...prev.logs, ...res.logs] }))
+    })
+
+  const handleTimeTravel = (index: number) => {
+    const session = sessionRef.current
+    if (session) setAppSession({ ...session, index })
+  }
 
   // Re-run automatically when the stack's structure changes (toggle,
   // reorder, purity, blend mode) — the core interaction of the editor.
@@ -137,20 +200,6 @@ function App() {
   useEffect(() => {
     if (hasRun.current) void runRef.current()
   }, [structureKey])
-
-  // UI button handlers: run an expression on top of the current stack with
-  // the input values bound as variables.
-  const handleInteractiveExecute = useCallback(
-    async (expression: string, inputs: Record<string, string | number>): Promise<string> => {
-      const res = await runProgram(buildProgram(layers, mainCode, blend, { main: expression }).source, inputs)
-      if (res.logs.length > 0) {
-        setOutput(prev => ({ ...prev, logs: [...prev.logs, ...res.logs] }))
-      }
-      if (!res.success) return `Error: ${res.errors.map(e => e.message).join('; ')}`
-      return res.result
-    },
-    [layers, mainCode, blend],
-  )
 
   // ── Editing ────────────────────────────────────────────────────────────────
   const handleCodeChange = useCallback(
@@ -194,6 +243,7 @@ function App() {
     setProjectName(name)
     setSelectedLayerId(project.layers.find(l => l.enabled && l.name !== 'core')?.id ?? 'core')
     setRunIssues({ source: '', issues: [] })
+    setAppSession(null)
     hasRun.current = false
     const active = project.layers.filter(l => l.enabled).length
     setOutput({ ...IDLE_OUTPUT, notice: `Opened ${name}: ${active} active layer${active === 1 ? '' : 's'}${describeBlend(project.blend)}. Press ▶ to run.` })
@@ -225,6 +275,7 @@ function App() {
     setProjectName('')
     setSelectedLayerId('core')
     setRunIssues({ source: '', issues: [] })
+    setAppSession(null)
     hasRun.current = false
     setOutput(IDLE_OUTPUT)
   }
@@ -240,10 +291,13 @@ function App() {
   const outputConsole = (maximize?: () => void) => (
     <OutputConsole
       output={output}
+      app={appSession}
       describeLocation={issue => describeLocation(issue, layers)}
       onIssueClick={handleIssueClick}
+      onMessage={(msg, group) => void handleMessage(msg, group)}
+      onTimeTravel={handleTimeTravel}
+      onRestart={() => void handleRestart()}
       onMaximize={maximize}
-      onExecute={handleInteractiveExecute}
     />
   )
 
@@ -258,14 +312,14 @@ function App() {
             {projectName || 'untitled'}
           </Typography>
 
-          <Tooltip title="Run (⌘/Ctrl + Enter)">
+          <Tooltip title="Run (⌘/Ctrl + Enter). A running app keeps its state — use Restart in the Output panel to start over.">
             <span>
               <Button
                 variant="contained"
                 color="success"
                 size="small"
                 startIcon={<PlayArrowIcon />}
-                onClick={handleRun}
+                onClick={() => void handleRun()}
                 disabled={output.status === 'running'}
                 sx={{ mr: 1 }}
               >
@@ -386,7 +440,7 @@ function App() {
                 badge={editorBadge}
                 issues={bufferIssues}
                 onChange={handleCodeChange}
-                onRun={handleRun}
+                onRun={() => void handleRun()}
                 reveal={reveal}
               />
             </Panel>

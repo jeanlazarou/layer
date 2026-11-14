@@ -33,8 +33,6 @@ export interface Program {
 }
 
 interface BuildOptions {
-  /** Main expression to use instead of the editor's (UI button handlers). */
-  main?: string
   /**
    * Also emit disabled layers as @layer blocks. They are not listed in
    * @layers, so they stay inactive — this only preserves their code (Save).
@@ -98,7 +96,7 @@ export function buildProgram(layers: Layer[], mainCode: string, blend: BlendSett
     lines.push('}', '')
   }
 
-  const main = (opts.main ?? mainCode).split('\n')
+  const main = mainCode.split('\n')
   segments.push({ target: 'main', firstLine: lines.length + 1, lineCount: main.length, indent: 0 })
   lines.push(...main)
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/jeanlazarou/layer/pkg/ast"
 	"github.com/jeanlazarou/layer/pkg/layers"
@@ -274,14 +276,19 @@ func (i *Interpreter) EnableLayer(layerName string) error {
 	i.layerContext.AddLayer(layerName)
 
 	// Set up built-in layer implementations. The ui, data, and debug layers
-	// are always impure; data's Option/JSON helpers are pure exceptions
-	// (they construct or transform values without performing I/O).
+	// are always impure (code written in them may perform effects). Some of
+	// their built-ins are pure exceptions because they only build values:
+	// the ui component constructors (rendering is the runtime's job) and
+	// data's Option/JSON helpers.
 	switch layerName {
 	case "debug":
 		i.layerContext.SetLayerImpure("debug")
 		SetupDebugLayer(i.layerContext, i)
 	case "ui":
 		i.layerContext.SetLayerImpure("ui")
+		for _, name := range uiPureFunctions {
+			i.layerContext.MarkPureException("ui", name)
+		}
 		SetupUILayer(i.layerContext)
 	case "data":
 		i.layerContext.SetLayerImpure("data")
@@ -385,9 +392,13 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 		// Then in layer context, applying blend mode
 		return i.lookupWithBlend(node, n.Name)
 
-	// Member access (layer.function)
+	// Member access: record.field, or layer.function. A local name (a
+	// parameter or let binding) shadows a layer of the same name.
 	case *ast.MemberAccess:
 		if ident, ok := n.Object.(*ast.Identifier); ok {
+			if val, local := env[ident.Name]; local {
+				return i.fieldOf(node, val, n.Member)
+			}
 			layerName := ident.Name
 			if err := i.checkPurityQualified(node, layerName, n.Member); err != nil {
 				return nil, err
@@ -398,7 +409,37 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 			}
 			return val, nil
 		}
-		return nil, i.error(node, "member access only supported on layer names currently")
+		obj, err := i.Eval(n.Object, env)
+		if err != nil {
+			return nil, err
+		}
+		return i.fieldOf(node, obj, n.Member)
+
+	// Record update: {record | field: value}
+	case *ast.RecordUpdate:
+		base, err := i.Eval(n.Record, env)
+		if err != nil {
+			return nil, err
+		}
+		record, ok := base.(map[string]interface{})
+		if !ok {
+			return nil, i.error(n.Record, fmt.Sprintf("only records can be updated with {… | field: value}, got %s", typeName(base)))
+		}
+		updated := make(map[string]interface{}, len(record))
+		for k, v := range record {
+			updated[k] = v
+		}
+		for key, valueNode := range n.Fields {
+			if _, exists := record[key]; !exists {
+				return nil, i.error(valueNode, fmt.Sprintf("cannot update field '%s': the record has no such field (fields: %s)", key, fieldList(record)))
+			}
+			val, err := i.Eval(valueNode, env)
+			if err != nil {
+				return nil, err
+			}
+			updated[key] = val
+		}
+		return updated, nil
 
 	// Functions
 	case *ast.Lambda:
@@ -635,6 +676,32 @@ func (i *Interpreter) Eval(node ast.Node, env map[string]interface{}) (interface
 	return nil, i.error(node, fmt.Sprintf("unknown node type: %T", node))
 }
 
+// fieldOf reads record.field.
+func (i *Interpreter) fieldOf(node ast.Node, val interface{}, field string) (interface{}, error) {
+	record, ok := val.(map[string]interface{})
+	if !ok {
+		return nil, i.error(node, fmt.Sprintf("cannot read field '%s' of %s", field, typeName(val)))
+	}
+	v, exists := record[field]
+	if !exists {
+		return nil, i.error(node, fmt.Sprintf("the record has no field '%s' (fields: %s)", field, fieldList(record)))
+	}
+	return v, nil
+}
+
+// fieldList renders a record's field names, sorted, for messages.
+func fieldList(record map[string]interface{}) string {
+	if len(record) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(record))
+	for k := range record {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
+}
+
 // matchPattern matches a pattern against a value
 // Returns a map of bindings if match succeeds, nil otherwise
 func (i *Interpreter) matchPattern(pattern ast.Node, value interface{}, env map[string]interface{}) map[string]interface{} {
@@ -744,6 +811,12 @@ func isCallable(val interface{}) bool {
 		return true
 	}
 	return false
+}
+
+// CallValue calls a Layer function value (a closure or a built-in) — used
+// by runtimes that drive apps (update, view).
+func CallValue(fn interface{}, args ...interface{}) (interface{}, error) {
+	return callValue(fn, args...)
 }
 
 // callValue invokes a value that may be a *Closure or a built-in Go function.

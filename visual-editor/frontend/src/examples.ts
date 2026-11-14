@@ -17,10 +17,13 @@ export interface Example {
 const FEATURED = [
   'fibonacci',
   'debug_trace',
+  'app_counter',
+  'app_todo',
+  'blend_per_function',
   'blend_fallback_cache',
   'blend_collect_logging',
-  'simple_calculator',
   'calculator',
+  'simple_calculator',
 ]
 
 function describe(source: string): string {

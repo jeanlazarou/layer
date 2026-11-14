@@ -377,11 +377,11 @@ A layer is like Photoshop's layers for code - you can stack different aspects of
 }
 
 @layer ui {
-    fn calculator() = view({
+    fn page(model) = view({
         title: "Factorial Calculator",
         children: [
-            input({name: "n", placeholder: "Enter number", type: "number"}),
-            button({label: "Calculate", onclick: "factorial(n)"})
+            input({name: "n", label: "Enter number", type: "number", value: model.n, on_input: "set_n"}),
+            text("{model.n}! = {factorial(model.n)}")
         ]
     })
 }

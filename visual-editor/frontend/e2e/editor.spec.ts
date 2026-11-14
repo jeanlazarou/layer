@@ -74,7 +74,8 @@ test('the resolution panel shows which layer answers each call', async ({ page }
   await openEditor(page)
   const panel = page.getByText('Who answers each call?').locator('..')
   await expect(panel).toContainText('factorial()')
-  await expect(panel).toContainText('app()')
+  await expect(panel).toContainText('page()')
+  await expect(panel).toContainText('update()')
 })
 
 test('typing a mistake shows a live diagnostic before running', async ({ page }) => {
@@ -103,15 +104,64 @@ test('runtime errors point at the layer and line, and clicking one jumps there',
   await expect(page.getByText('pure layer')).toBeVisible()
 })
 
-test('UI results render as live widgets that run Layer code', async ({ page }) => {
+const RUN_APP = 'app({init: init(), update: update, view: page})'
+
+async function startDefaultApp(page: Page) {
   await openEditor(page)
   await page.getByText('Main Expression').click()
-  await setCode(page, 'app()')
+  await setCode(page, RUN_APP)
   await run(page)
+  await expect(output(page)).toContainText('5! = 120')
+}
 
-  await page.getByPlaceholder('Enter a number').fill('6')
-  await page.getByRole('button', { name: 'Compute' }).click()
-  await expect(output(page)).toContainText('720')
+const model = (page: Page) => page.getByLabel('app model')
+const messages = (page: Page) => page.getByLabel('app messages')
+
+test('an app runs live: buttons and inputs send messages, the model is shown', async ({ page }) => {
+  await startDefaultApp(page)
+  await expect(model(page)).toHaveText('{n: 5}')
+
+  await page.getByRole('button', { name: '+1' }).click()
+  await expect(output(page)).toContainText('6! = 720')
+
+  await page.getByLabel('n', { exact: true }).fill('10')
+  await expect(output(page)).toContainText('10! = 3628800')
+  await expect(model(page)).toHaveText('{n: 10}')
+  await expect(messages(page)).toContainText('init')
+  await expect(messages(page)).toContainText('"inc"')
+  await expect(messages(page)).toContainText('{set_n: 10}')
+})
+
+test('clicking a past message goes back to that state', async ({ page }) => {
+  await startDefaultApp(page)
+  await page.getByRole('button', { name: '+1' }).click()
+  await page.getByRole('button', { name: '+1' }).click()
+  await expect(output(page)).toContainText('7! = 5040')
+
+  await messages(page).getByText('init').click()
+  await expect(output(page)).toContainText('5! = 120')
+  await expect(model(page)).toHaveText('{n: 5}')
+
+  // A new message continues from the selected state; later ones are dropped.
+  await page.getByRole('button', { name: '−1' }).click()
+  await expect(output(page)).toContainText('4! = 24')
+  await expect(messages(page).locator('li')).toHaveCount(2)
+})
+
+test('toggling a layer re-renders a running app and keeps its state', async ({ page }) => {
+  await startDefaultApp(page)
+  await page.getByRole('button', { name: '+1' }).click()
+  await expect(output(page)).toContainText('6! = 720')
+  await expect(output(page)).toContainText('[INFO] factorial(6)')
+
+  await layerCard(page, 'debug').locator('button[title="Disable layer"]').click()
+  await expect(output(page)).not.toContainText('[INFO] factorial(6)')
+  await expect(output(page)).toContainText('6! = 720')
+  await expect(model(page)).toHaveText('{n: 6}')
+
+  await page.getByRole('button', { name: 'Restart' }).click()
+  await expect(output(page)).toContainText('5! = 120')
+  await expect(messages(page).locator('li')).toHaveCount(1)
 })
 
 test('the fallback example loads its blend mode and impure layer, and runs', async ({ page }) => {
@@ -145,7 +195,7 @@ test('functions can choose their own blend mode in the resolution panel', async 
   expect(saved).toContain('@layers [core, data, tax, cache] blend: {fetch: override, total: chain}')
 })
 
-test('calculator buttons write into the display input (target)', async ({ page }) => {
+test('the calculator app computes from key messages', async ({ page }) => {
   await openEditor(page)
   await openExample(page, /Interactive Calculator/)
   await run(page)
@@ -153,7 +203,36 @@ test('calculator buttons write into the display input (target)', async ({ page }
   for (const key of ['7', '×', '6', '=']) {
     await page.getByRole('button', { name: key, exact: true }).click()
   }
-  await expect(page.getByPlaceholder('0', { exact: true })).toHaveValue('42')
+  await expect(model(page)).toHaveText('{display: "42"}')
+})
+
+test('layers add panels and persistence to the todo app', async ({ page }) => {
+  await openEditor(page)
+  await openExample(page, /Todo list/)
+  await run(page)
+  // blend: {page: collect} — the stats layer contributes its own panel.
+  await expect(page.getByText('Stats', { exact: true })).toBeVisible()
+
+  // Each keystroke is a message; the history shows one entry for the input.
+  await page.getByPlaceholder('What needs doing?').pressSequentially('milk')
+  await expect(messages(page).locator('li')).toHaveText(['init', '{draft: "milk"}'])
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.getByRole('button', { name: '☐ milk' })).toBeVisible()
+  await expect(page.getByPlaceholder('What needs doing?')).toHaveValue('')
+  await page.getByRole('button', { name: '☐ milk' }).click()
+  await expect(output(page)).toContainText('1 items, 1 done')
+
+  // The persist layer restored the model: Restart (init) brings the item back.
+  await page.getByRole('button', { name: 'Restart' }).click()
+  await expect(page.getByRole('button', { name: '☑ milk' })).toBeVisible()
+})
+
+test('a leftover onclick string explains the new model', async ({ page }) => {
+  await openEditor(page)
+  await page.getByText('Main Expression').click()
+  await setCode(page, 'button({label: "x", onclick: "f()"})')
+  await run(page)
+  await expect(output(page)).toContainText('onclick code strings were removed')
 })
 
 test('the workspace survives a reload', async ({ page }) => {

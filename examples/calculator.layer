@@ -1,9 +1,23 @@
-# Interactive Calculator
-# Full-featured calculator with digit pad and display
+# Interactive Calculator — an app: the model is the display text
+#
+# Every key sends a message ({digit: "7"}, {op: "*"}, "equals", ...); update
+# turns the message into a new display; the view shows it. The arithmetic
+# helpers below are ordinary pure functions.
 
 @layers [core, ui]
 
 @layer core {
+    fn init() = {display: "0"}
+
+    fn update(msg, model) =
+        match msg with
+        | {digit: d} -> {model | display: append_digit(model.display, d)}
+        | {op: o}    -> {model | display: append_operator(model.display, o)}
+        | "equals"   -> {model | display: evaluate(model.display)}
+        | "square"   -> {model | display: calc_square(model.display)}
+        | "percent"  -> {model | display: calc_percent(model.display)}
+        | "clear"    -> init()
+
     # Append digit to display (string concatenation)
     fn append_digit(display, digit) =
         match display with
@@ -60,75 +74,30 @@
         match display with
         | "" -> "0"
         | _ -> to_string(to_float(display) / 100)
-
-    # Two-number arithmetic operations
-    fn calc_add(a, b) = to_string(to_float(a) + to_float(b))
-    fn calc_subtract(a, b) = to_string(to_float(a) - to_float(b))
-    fn calc_multiply(a, b) = to_string(to_float(a) * to_float(b))
-    fn calc_divide(a, b) =
-        match to_float(b) with
-        | 0.0 -> "Error"
-        | _ -> to_string(to_float(a) / to_float(b))
-
-    # Calculator utilities
-    fn clear() = "0"
 }
 
 @layer ui {
-    fn calculator() =
+    fn key(label, msg) = button({label: label, on_click: msg})
+    fn digit(d) = key(d, {digit: d})
+    fn op(label, o) = key(label, {op: o})
+
+    fn calculator(model) =
         view({
             title: "Calculator",
             children: [
-                text({content: "Calculator"}),
-
-                # Display
-                input({name: "display", placeholder: "0", width: "280px"}),
-
-                # Calculator keypad with operators
-                row([
-                    button({label: "7", onclick: "append_digit(display, '7')", target: "display"}),
-                    button({label: "8", onclick: "append_digit(display, '8')", target: "display"}),
-                    button({label: "9", onclick: "append_digit(display, '9')", target: "display"}),
-                    button({label: "÷", onclick: "append_operator(display, '/')", target: "display"}),
-                    button({label: "C", onclick: "clear()", target: "display"})
-                ]),
-                row([
-                    button({label: "4", onclick: "append_digit(display, '4')", target: "display"}),
-                    button({label: "5", onclick: "append_digit(display, '5')", target: "display"}),
-                    button({label: "6", onclick: "append_digit(display, '6')", target: "display"}),
-                    button({label: "×", onclick: "append_operator(display, '*')", target: "display"}),
-                    button({label: "x²", onclick: "calc_square(display)", target: "display"})
-                ]),
-                row([
-                    button({label: "1", onclick: "append_digit(display, '1')", target: "display"}),
-                    button({label: "2", onclick: "append_digit(display, '2')", target: "display"}),
-                    button({label: "3", onclick: "append_digit(display, '3')", target: "display"}),
-                    button({label: "-", onclick: "append_operator(display, '-')", target: "display"}),
-                    button({label: "%", onclick: "calc_percent(display)", target: "display"})
-                ]),
-                row([
-                    button({label: "0", onclick: "append_digit(display, '0')", target: "display"}),
-                    button({label: ".", onclick: "append_digit(display, '.')", target: "display"}),
-                    button({label: "=", onclick: "evaluate(display)", target: "display"}),
-                    button({label: "+", onclick: "append_operator(display, '+')", target: "display"}),
-                    button({label: " ", onclick: "display", target: "display"})
-                ]),
-
-                # Two-number operations
-                text({content: "Two-Number Operations:"}),
-                row([
-                    input({name: "num1", placeholder: "First number", width: "130px"}),
-                    input({name: "num2", placeholder: "Second number", width: "130px"})
-                ]),
-                row([
-                    button({label: "num1 + num2", onclick: "calc_add(num1, num2)"}),
-                    button({label: "num1 - num2", onclick: "calc_subtract(num1, num2)"}),
-                    button({label: "num1 × num2", onclick: "calc_multiply(num1, num2)"}),
-                    button({label: "num1 ÷ num2", onclick: "calc_divide(num1, num2)"})
-                ])
+                text({content: model.display}),
+                row([digit("7"), digit("8"), digit("9"), op("÷", "/"), key("C", "clear")]),
+                row([digit("4"), digit("5"), digit("6"), op("×", "*"), key("x²", "square")]),
+                row([digit("1"), digit("2"), digit("3"), op("-", "-"), key("%", "percent")]),
+                row([digit("0"), digit("."), key("=", "equals"), op("+", "+")])
             ]
         })
 }
 
-# Main expression
-render(calculator())
+app({init: init(), update: update, view: calculator})
+
+# Send: {digit: "7"}
+# Send: {op: "*"}
+# Send: {digit: "6"}
+# Send: "equals"
+# Model: {display: "42"}

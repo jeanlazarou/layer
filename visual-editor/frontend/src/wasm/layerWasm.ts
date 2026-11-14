@@ -11,7 +11,7 @@ declare global {
     // Provided by wasm_exec.js
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Go: any
-    executeLayer?: (source: string, varsJSON?: string) => string
+    executeLayer?: (source: string, appStateJSON?: string) => string
     describeLayer?: (source: string) => string
     parseLayerFile?: (source: string) => string
   }
@@ -80,11 +80,13 @@ async function call<T>(fn: 'executeLayer' | 'describeLayer' | 'parseLayerFile', 
 }
 
 /**
- * Run a program. `vars` are bound as top-level variables (current values of
- * UI inputs) — passed as data, never spliced into the source.
+ * Run a program. For an app (main expression `app({...})`), `appState`
+ * continues from a model and applies messages; without it the app starts
+ * from its init. Models and messages are plain data passed as JSON, never
+ * spliced into source text.
  */
-export async function runProgram(source: string, vars?: Record<string, string | number>): Promise<RunResult> {
-  const result = await call<Partial<RunResult>>('executeLayer', source, ...(vars ? [JSON.stringify(vars)] : []))
+export async function runProgram(source: string, appState?: { model?: unknown; messages?: unknown[] }): Promise<RunResult> {
+  const result = await call<Partial<RunResult>>('executeLayer', source, ...(appState ? [JSON.stringify(appState)] : []))
   return { success: false, errors: [], result: '', kind: 'none', logs: [], ...result }
 }
 

@@ -1,11 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Typography, Button, TextField } from '@mui/material'
 
 interface UIPreviewProps {
-  /** XML produced by the ui layer. */
+  /** XML produced by the ui layer (an app's current view, or a static UI). */
   xmlContent: string
-  /** Runs a Layer expression with the current input values bound as variables. */
-  onExecute: (expression: string, inputs: Record<string, string | number>) => Promise<string>
+  /**
+   * Sends a message to the running app; group identifies a source whose
+   * consecutive messages may be merged in the history (an input). Absent for
+   * static UI.
+   */
+  onMessage?: (msg: unknown, group?: string) => void
 }
 
 interface UIComponent {
@@ -35,52 +39,64 @@ function parseXML(xml: string): UIComponent | null {
   return parseNode(doc.documentElement)
 }
 
-/** Input names and types (text, number, ...) declared anywhere in the tree. */
-function inputTypes(component: UIComponent | null): Record<string, string> {
-  const types: Record<string, string> = {}
-  const walk = (c: UIComponent | string) => {
-    if (typeof c === 'string') return
-    if (c.type === 'input' && c.props.name) types[c.props.name] = c.props.type || 'text'
-    c.children.forEach(walk)
+/** Handlers (on_click, on_input) are rendered by the interpreter as JSON. */
+function parseHandler(raw: string | undefined): { ok: true; value: unknown } | { ok: false } {
+  if (raw === undefined) return { ok: false }
+  try {
+    return { ok: true, value: JSON.parse(raw) }
+  } catch {
+    return { ok: false }
   }
-  if (component) walk(component)
-  return types
 }
 
-const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
-  const component = useMemo(() => parseXML(xmlContent), [xmlContent])
-  const types = useMemo(() => inputTypes(component), [component])
-  const [inputs, setInputs] = useState<Record<string, string>>({})
-  const [result, setResult] = useState<{ label: string; value: string } | null>(null)
+/** Two texts denote the same value of an input (so a draft like "1." is kept). */
+function sameValue(a: string, b: string, type: string | undefined): boolean {
+  if (type === 'number') return a.trim() !== '' && b.trim() !== '' && Number(a) === Number(b)
+  return a === b
+}
 
-  // Make sure every declared input has a value, so handlers can always
-  // reference it (an empty string until the user types).
+/**
+ * An input keeps a local draft while you type: the app re-renders with the
+ * model's value after each message, and the draft is only replaced when that
+ * value really differs (e.g. update cleared the field).
+ */
+function AppInput({ props, onMessage }: { props: Record<string, string>; onMessage?: (msg: unknown, group?: string) => void }) {
+  const value = props.value ?? ''
+  const [text, setText] = useState(value)
   useEffect(() => {
-    setInputs(prev => {
-      const next = { ...prev }
-      for (const name of Object.keys(types)) if (!(name in next)) next[name] = ''
-      return next
-    })
-  }, [types])
+    setText(prev => (sameValue(prev, value, props.type) ? prev : value))
+  }, [value, props.type])
 
-  const handleClick = useCallback(
-    async (props: Record<string, string>) => {
-      const values: Record<string, string | number> = {}
-      for (const [name, value] of Object.entries(inputs)) {
-        const num = parseFloat(value)
-        values[name] = types[name] === 'number' && value.trim() !== '' && !isNaN(num) ? num : value
-      }
-      const value = await onExecute(props.onclick, values)
-      // target: "<input name>" writes the result into that input (e.g. a
-      // calculator display); otherwise it is shown below the UI.
-      if (props.target && props.target in types && !value.startsWith('Error')) {
-        setInputs(prev => ({ ...prev, [props.target]: value }))
-      } else {
-        setResult({ label: props.label || props.onclick, value })
-      }
-    },
-    [inputs, types, onExecute],
+  const handler = parseHandler(props.on_input)
+  const tag = handler.ok && typeof handler.value === 'string' ? handler.value : undefined
+
+  const handleChange = (next: string) => {
+    setText(next)
+    if (!tag || !onMessage) return
+    if (props.type === 'number') {
+      if (next.trim() === '' || !Number.isFinite(Number(next))) return // wait for a number
+      onMessage({ [tag]: Number(next) }, `input:${tag}`)
+    } else {
+      onMessage({ [tag]: next }, `input:${tag}`)
+    }
+  }
+
+  return (
+    <TextField
+      size="small"
+      type={props.type || 'text'}
+      placeholder={props.placeholder}
+      label={props.label}
+      value={text}
+      onChange={e => handleChange(e.target.value)}
+      inputProps={{ name: props.name }}
+      sx={{ mb: 1, mr: 1, width: props.width || '200px' }}
+    />
   )
+}
+
+const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onMessage }) => {
+  const component = useMemo(() => parseXML(xmlContent), [xmlContent])
 
   const render = (node: UIComponent | string, key: number): React.ReactNode => {
     if (typeof node === 'string') return <span key={key}>{node}</span>
@@ -105,37 +121,28 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
             {props.content ?? kids}
           </Typography>
         )
-      case 'button':
+      case 'button': {
+        const handler = parseHandler(props.on_click)
+        const enabled = handler.ok && !!onMessage
         return (
           <Button
             key={key}
             variant="contained"
-            disabled={!props.onclick}
-            onClick={() => handleClick(props)}
+            disabled={!enabled}
+            title={handler.ok && !onMessage ? 'Buttons send messages to an app — see app({init, update, view})' : undefined}
+            onClick={() => handler.ok && onMessage?.(handler.value)}
             sx={{ mr: 1, mb: 1, textTransform: 'none' }}
           >
             {props.label ?? kids}
           </Button>
         )
-      case 'input': {
-        const name = props.name || `input_${key}`
-        return (
-          <TextField
-            key={key}
-            size="small"
-            type={props.type || 'text'}
-            placeholder={props.placeholder}
-            label={props.label}
-            value={inputs[name] ?? props.value ?? ''}
-            onChange={e => setInputs(prev => ({ ...prev, [name]: e.target.value }))}
-            sx={{ mb: 1, mr: 1, width: props.width || '200px' }}
-          />
-        )
       }
+      case 'input':
+        return <AppInput key={props.name ?? key} props={props} onMessage={onMessage} />
       case 'container': {
         const horizontal = props.layout === 'horizontal'
         return (
-          <Box key={key} sx={{ display: 'flex', flexDirection: horizontal ? 'row' : 'column', gap: horizontal ? 2 : 1, mb: 1, flexWrap: 'wrap' }}>
+          <Box key={key} sx={{ display: 'flex', flexDirection: horizontal ? 'row' : 'column', gap: horizontal ? 2 : 1, mb: 1, flexWrap: 'wrap', alignItems: horizontal ? 'center' : 'stretch' }}>
             {kids}
           </Box>
         )
@@ -165,21 +172,7 @@ const UIPreview: React.FC<UIPreviewProps> = ({ xmlContent, onExecute }) => {
     )
   }
 
-  return (
-    <Box sx={{ p: 2 }}>
-      {render(component, 0)}
-      {result && (
-        <Box sx={{ mt: 2, p: 2, bgcolor: '#e3f2fd', borderRadius: 1, border: '2px solid #2196f3' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#1976d2', mb: 0.5 }}>
-            {result.label}
-          </Typography>
-          <Typography variant="body1" sx={{ fontFamily: 'monospace', color: result.value.startsWith('Error') ? 'error.main' : '#333', whiteSpace: 'pre-wrap' }}>
-            {result.value}
-          </Typography>
-        </Box>
-      )}
-    </Box>
-  )
+  return <Box sx={{ p: 2 }}>{render(component, 0)}</Box>
 }
 
 export default UIPreview

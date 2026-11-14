@@ -1,37 +1,52 @@
-# Simple Calculator Example
-# Basic calculator with input fields for operands
+# Simple Calculator — an app with two number inputs
+#
+# The model holds both operands and the last result. Typing in an input
+# sends {a: number} or {b: number}; each button sends {op: name}; update
+# computes the result.
 
 @layers [core, ui]
 
 @layer core {
-    fn add(a, b) = a + b
-    fn subtract(a, b) = a - b
-    fn multiply(a, b) = a * b
-    fn divide(a, b) =
-        match b with
-        | 0 -> "Error: Division by zero"
-        | _ -> a / b
+    fn init() = {a: 0, b: 0, result: ""}
+
+    fn compute(op, a, b) =
+        match op with
+        | "add"      -> to_string(a + b)
+        | "subtract" -> to_string(a - b)
+        | "multiply" -> to_string(a * b)
+        | "divide"   -> if b == 0 then "Error: division by zero" else to_string(a / b)
+
+    fn update(msg, model) =
+        match msg with
+        | {a: x}   -> {model | a: x}
+        | {b: x}   -> {model | b: x}
+        | {op: op} -> {model | result: compute(op, model.a, model.b)}
 }
 
 @layer ui {
-    fn calculator() =
+    fn calculator(model) =
         view({
             title: "Simple Calculator",
             children: [
-                text({content: "Enter two numbers and click an operation:"}),
+                text("Enter two numbers and pick an operation:"),
                 row([
-                    input({name: "num1", placeholder: "First number", type: "number"}),
-                    input({name: "num2", placeholder: "Second number", type: "number"})
+                    input({name: "a", label: "First number", type: "number", value: model.a, on_input: "a"}),
+                    input({name: "b", label: "Second number", type: "number", value: model.b, on_input: "b"})
                 ]),
                 row([
-                    button({label: "Add", onclick: "add(num1, num2)"}),
-                    button({label: "Subtract", onclick: "subtract(num1, num2)"}),
-                    button({label: "Multiply", onclick: "multiply(num1, num2)"}),
-                    button({label: "Divide", onclick: "divide(num1, num2)"})
-                ])
+                    button({label: "Add", on_click: {op: "add"}}),
+                    button({label: "Subtract", on_click: {op: "subtract"}}),
+                    button({label: "Multiply", on_click: {op: "multiply"}}),
+                    button({label: "Divide", on_click: {op: "divide"}})
+                ]),
+                text("Result: {model.result}")
             ]
         })
 }
 
-# Main expression
-render(calculator())
+app({init: init(), update: update, view: calculator})
+
+# Send: {a: 6}
+# Send: {b: 7}
+# Send: {op: "multiply"}
+# Model: {a: 6, b: 7, result: "42"}
